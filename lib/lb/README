@@ -1,0 +1,29 @@
+Some notes about liba4.so:
+
+Headers:
+ - types.h  --- Contains most of the types used by the library
+ - utils.h  --- Generally useful helper functions
+ - player.h --- Useful functions for clients
+ - hub.h    --- Useful functions for the server side game play
+ - cmsg.h   --- Messages _to_ the client
+ - smsg.h   --- Messages _to_ the server
+ 
+The functions make use of a Game structure.  This contains:
+ - an array of Player structs [these store information about individual players]
+ - a ClientInfo struct which stores that player's ID, whether this player did a short or long last turn and a number of callback function pointers. Those will be called at the appropriate times by the library code. In particular, processExecute will be called whenever an execute phase message arrives from the server.   You will need to implement this function yourself but the library does contains some building blocks for you to use to do that (the record_ functions listed in player.h).
+    For server use, the ClientInfo field will be NULL.
+ - A void* called custom.    This is to allow you to add additional information to be held in the Game struct.
+ - A function pointer called freeCustom. This takes a void* and returns nothing.  The idea here is that you can specify your own function to clean up whatever you put as "custom".   Now you could specify "free" as this, but if you want to have more complicated structs under there, you may need to write a better destructor.
+ - serverLootHook - called whenever a player picks up loot.
+ - sendMsgToAll - called to send a message to all players in the game.  The library has an implementation of this you can call in hub.h.
+ 
+How to use the Game struct?
+ 
+Allocate one with create_game() (from types.h).
+Fill in some of the callbacks etc.
+At the end, clean it all up with free_game() (from types.h).
+ 
+If you are implementing a player, you should be able to play out a game by calling play_client_game() (from player.h).
+
+If you are implementing the server, you will need to write a play game routine.
+There are some building blocks you can use in "hub.h".
