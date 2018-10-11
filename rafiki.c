@@ -10,22 +10,41 @@ enum Error {
     SYSTEM_ERR = 10
 };
 
+enum ConnectionState {
+    AUTHENCATING = 1,
+    READY = 2,
+    FAILED = 3
+};
+
+enum GameState {
+    WAITING = 1,
+    PLAYING = 2,
+    EXITING = 3
+};
+
 typedef struct {
     int socket;
     int port;
-    char *hostname;
-    char *name;
-    pthread_t thread;
     FILE *in;
     FILE *out;
-} GameConnection;
+    enum ConnectionState state;
+} Connection;
+
+typedef struct {
+    char *name;
+    pthread_t thread;
+    int connectionAmount;
+    Connection *connections;    
+    enum GameState state;
+} Game;
 
 typedef struct {
     int timeout;
     int socket;
-    int connectionAmount;
-    GameConnection *connections;
+    int gameAmount;
+    Game *games;
     char *port;
+    char *key;
 } Server;
 
 void exit_with_error(int error) {
@@ -107,17 +126,77 @@ void get_socket(Server *server) {
     freeaddrinfo(res0);
 }
 
-void add_connection(Server *server, int socket) {
-    GameConnection connection;
+void add_connection(Game *game, int socket) {
+    Connection connection;
     connection.socket = socket;
     connection.in = fdopen(socket, "w");
     connection.out = fdopen(socket, "r");
-    int size = server->connectionAmount;
-    server->connections = realloc(server->connections, sizeof(GameConnection)
+    connection.state = AUTHENCATING;
+    int size = game->connectionAmount;
+    game->connections = realloc(game->connections, sizeof(Connection)
             * (size + 1));
-    server->connections[size] = connection;
-    server->connectionAmount = size + 1;
+    game->connections[size] = connection;
+    game->connectionAmount = size + 1;
     printf("connection added\n");
+}
+
+void add_game(Server *server, char *name) {
+    Game game;
+    game.name = name;
+    game.state = WAITING;
+    game.connections = malloc(0);
+    int size = server->gameAmount;
+    server->games = realloc(server->games, sizeof(Game) * (size + 1));
+    server->games[size] = game;
+    server->gameAmount = size + 1;
+    printf("new game added\n");
+}
+
+void free_connection(Connection connection) {
+    
+}
+
+// void remove_connection(Server *server, int index) {
+//     GameConnection *newArr = malloc(sizeof(GameConnection)
+//             * (server->connectionAmount - 1));
+//     for (int i = 0; i < server->connectionAmount; i++) {
+//         if (i < index) {
+//             newArr[i] = server->connections[i];
+//         } else if (i > index) {
+//             newArr[i] = server->connections[i - 1];
+//         }
+//     }
+//     free_connection(server->connections[index]);
+//     free(server->connections);
+//     server->connections = newArr;
+// }
+
+// int authenticate(Server *server, char *key) {
+//     return strcmp(server->key, key) == 0;
+// }
+
+// void setup_new_connection(Server *server, GameConnection connection) {
+//     char *buffer;
+//     read_line(connection.out, &buffer, 0);
+//     printf("from player: %s\n", buffer);
+//     // if (!authenticate(server, "")) {
+        
+//     // }
+// }
+
+// int index_of_game_name(Server *server, char *name) {
+//     int index = -1;
+//     for (int i = 0; i < server->connectionAmount; i++) {
+//         if (strcmp(server->connections[i].name, name) == 0) {
+//             index = i;
+//             break;
+//         }
+//     }
+//     return index;
+// }
+
+void handle_new_connection() {
+    
 }
 
 void start_server(Server *server) {
@@ -126,18 +205,29 @@ void start_server(Server *server) {
     int x = 0;
     while(1) {
         int sock;
-        if (server->connectionAmount < 1) {
-            sock = accept(server->socket, (struct sockaddr *) &in, &size);
-            if (sock == -1) {
-                exit_with_error(FAILED_LISTEN);
-            }
-            add_connection(server, sock);
+        sock = accept(server->socket, (struct sockaddr *) &in, &size);
+        if (sock == -1) {
+            exit_with_error(FAILED_LISTEN);
         }
-        char *buffer;
-        read_line(server->connections[0].out, &buffer, 0);
-        printf("server socket: %i, %s\n", sock, buffer);
-        fprintf(server->connections[0].in, "testback\n");
-        fflush(server->connections[0].in);
+        // add_connection(server, sock);
+        // for (int i = 0; i < server->connectionAmount; i++) {
+        //     switch(server->connections[i].state) {
+        //         case(INITIALIZING):
+        //             setup_new_connection(server, server->connections[i]);
+        //             break;
+        //         case(WAITING):
+        //             break;
+        //         case(PLAYING):
+        //             break;
+        //         case(EXITING):
+        //             break;
+        //     }
+        // }
+        // char *buffer;
+        // read_line(server->connections[0].out, &buffer, 0);
+        // printf("server socket: %i, %s\n", sock, buffer);
+        // fprintf(server->connections[0].in, "testback\n");
+        // fflush(server->connections[0].in);
         if (x++ > 10) break;
     }
 }
@@ -145,17 +235,18 @@ void start_server(Server *server) {
 void setup_server(Server *server) {
     server->timeout = 0;
     server->port = "3000";
-    server->connectionAmount = 0;
-    server->connections = malloc(0);
+    server->gameAmount = 0;
+    server->games = malloc(0);
+    server->key = "12345";
 }
 
-void free_server(Server *server) {
-    for (int i = 0; i < server->connectionAmount; i++) {
-        fclose(server->connections[i].in);
-        fclose(server->connections[i].out);
-    }
-    free(server->connections);
-}
+// void free_server(Server *server) {
+//     for (int i = 0; i < server->connectionAmount; i++) {
+//         fclose(server->connections[i].in);
+//         fclose(server->connections[i].out);
+//     }
+//     free(server->connections);
+// }
 
 void signal_handler(int sig) {
     switch(sig) {
@@ -187,5 +278,5 @@ int main(int argc, char **argv) {
     setup_server(&server);
     get_socket(&server);
     start_server(&server);
-    free_server(&server);
+    // free_server(&server);
 }

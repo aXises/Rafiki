@@ -20,6 +20,7 @@ typedef struct {
     int socket;
     char *port;
     char *name;
+    char *key;
 } Server;
 
 void exit_with_error(int error, char *playerName) {
@@ -114,5 +115,6 @@ int main(int argc, char **argv) {
     load_keyfile(argv[1]);
     Server server;
     server.port = "3000";
+    server.key = "12345";
     connect_server(&server);
 }
