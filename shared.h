@@ -21,6 +21,9 @@
 #include <errno.h>
 
 #include <game.h>
+#include <util.h>
+
+#define LOCALHOST "127.0.0.1"
 
 void load_keyfile(char *);
 

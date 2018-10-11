@@ -1,7 +1,5 @@
 #include "shared.h"
 
-#define LOCALHOST "127.0.0.1"
-
 enum Error {
     INVALID_ARG_NUM = 1,
     INVALID_KEYFILE = 2,
@@ -32,25 +30,25 @@ typedef struct {
 
 void exit_with_error(int error) {
     switch(error) {
-        case 1:
+        case INVALID_ARG_NUM:
             fprintf(stderr, "Usage: rafiki keyfile deckfile statfile timeout\n");
             break;
-        case 2:
+        case INVALID_KEYFILE:
             fprintf(stderr, "Bad keyfile\n");
             break;
-        case 3:
+        case INVALID_DECKFILE:
             fprintf(stderr, "Bad deckfile\n");
             break;
-        case 4:
+        case INVALID_STATFILE:
             fprintf(stderr, "Bad statfile\n");
             break;
-        case 5:
+        case BAD_TIMEOUT:
             fprintf(stderr, "Bad timeout\n");
             break;
-        case 6:
+        case FAILED_LISTEN:
             fprintf(stderr, "Failed listen\n");
             break;
-        case 10:
+        case SYSTEM_ERR:
             fprintf(stderr, "System error\n");
             break;
     }
@@ -91,10 +89,12 @@ void get_socket(Server *server) {
         }
         if (bind(sock, res->ai_addr, res->ai_addrlen) == -1) {
             sock = -1;
+            close(sock);
             continue;
         }
         if (listen(sock, 5) == -1) {
             sock = -1;
+            close(sock);
             continue;
         }
         break;  /* okay we got one */
@@ -123,13 +123,22 @@ void add_connection(Server *server, int socket) {
 void start_server(Server *server) {
     struct sockaddr_in in;
     socklen_t size = sizeof(in);
+    int x = 0;
     while(1) {
-    int socket = accept(server->socket, (struct sockaddr *) &in, &size);
-    if (socket == -1) {
-        exit_with_error(FAILED_LISTEN);
-    }
-    printf("socket2: %i\n", socket);
-    add_connection(server, socket);
+        int sock;
+        if (server->connectionAmount < 1) {
+            sock = accept(server->socket, (struct sockaddr *) &in, &size);
+            if (sock == -1) {
+                exit_with_error(FAILED_LISTEN);
+            }
+            add_connection(server, sock);
+        }
+        char *buffer;
+        read_line(server->connections[0].out, &buffer, 0);
+        printf("server socket: %i, %s\n", sock, buffer);
+        fprintf(server->connections[0].in, "testback\n");
+        fflush(server->connections[0].in);
+        if (x++ > 10) break;
     }
 }
 
@@ -148,7 +157,28 @@ void free_server(Server *server) {
     free(server->connections);
 }
 
+void signal_handler(int sig) {
+    switch(sig) {
+        case(SIGINT):
+            printf("signint detected\n");
+            exit(0); // remove this and kill players instead.
+            break;
+        case(SIGTERM):
+            printf("signterm detected\n");
+            exit(0);
+            break;
+    }
+}
+
+void setup_signal_handler() {
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigaction(SIGINT, &sa, 0);
+    sigaction(SIGTERM, &sa, 0);
+}
+
 int main(int argc, char **argv) {
+    setup_signal_handler();
     check_args(argc, argv);
     load_keyfile(argv[1]);
     load_deckfile(argv[2]);
