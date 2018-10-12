@@ -23,10 +23,12 @@ enum GameState {
 };
 
 typedef struct {
+    char *name;
     int socket;
     int port;
     FILE *in;
     FILE *out;
+    struct Player player;
     enum ConnectionState state;
 } Connection;
 
@@ -34,6 +36,7 @@ typedef struct {
     char *name;
     pthread_t thread;
     int connectionAmount;
+    int playerAmount;
     Connection *connections;    
     enum GameState state;
 } Game;
@@ -98,7 +101,11 @@ void get_socket(Server *server) {
     if (error) {
         exit_with_error(FAILED_LISTEN);
     }
-    sock = -1;
+    if (strcmp(server->port, "0") == 0) {
+        sock = -1;
+    } else {
+        sock = -1;
+    }
     for (res = res0; res != NULL; res = res->ai_next) {
         sock = socket(res->ai_family, res->ai_socktype,
                 res->ai_protocol);
@@ -126,12 +133,14 @@ void get_socket(Server *server) {
     freeaddrinfo(res0);
 }
 
-void add_connection(Game *game, int socket) {
-    Connection connection;
-    connection.socket = socket;
-    connection.in = fdopen(socket, "w");
-    connection.out = fdopen(socket, "r");
-    connection.state = AUTHENCATING;
+void setup_connection(Connection *connection, int sock) {
+    connection->socket = sock;
+    connection->in = fdopen(sock, "w");
+    connection->out = fdopen(sock, "r");
+    connection->state = AUTHENCATING;
+}
+
+void add_connection(Game *game, Connection connection) {
     int size = game->connectionAmount;
     game->connections = realloc(game->connections, sizeof(Connection)
             * (size + 1));
@@ -140,16 +149,18 @@ void add_connection(Game *game, int socket) {
     printf("connection added\n");
 }
 
-void add_game(Server *server, char *name) {
-    Game game;
-    game.name = name;
-    game.state = WAITING;
-    game.connections = malloc(0);
+void setup_game(Game *game, char *name, int playerAmount) {
+    game->name = name;
+    game->state = WAITING;
+    game->connections = malloc(0);
+    game->playerAmount = playerAmount;
+}
+
+void add_game(Server *server, Game game) {
     int size = server->gameAmount;
     server->games = realloc(server->games, sizeof(Game) * (size + 1));
     server->games[size] = game;
     server->gameAmount = size + 1;
-    printf("new game added\n");
 }
 
 void free_connection(Connection connection) {
@@ -171,18 +182,38 @@ void free_connection(Connection connection) {
 //     server->connections = newArr;
 // }
 
-// int authenticate(Server *server, char *key) {
-//     return strcmp(server->key, key) == 0;
-// }
+int authenticate(Server *server, char *key) {
+    return strcmp(server->key, key) == 0;
+}
 
-// void setup_new_connection(Server *server, GameConnection connection) {
-//     char *buffer;
-//     read_line(connection.out, &buffer, 0);
-//     printf("from player: %s\n", buffer);
-//     // if (!authenticate(server, "")) {
-        
-//     // }
-// }
+void send_message(Connection connection, char *message, ...) {
+    va_list args;
+    va_start(args, message);
+    vfprintf(connection.in, message, args);
+    va_end(args);
+    fflush(connection.in);
+}
+
+void setup_new_connection(Server *server, int sock) {
+    Connection connection;
+    setup_connection(&connection, sock);
+    char *buffer;
+    read_line(connection.out, &buffer, 0);
+    printf("from player: %s\n", buffer);
+    if (!authenticate(server, buffer)) {
+        send_message(connection, "no\n");
+        free_connection(connection);
+        return;
+    }
+    send_message(connection, "yes\n");
+    read_line(connection.out, &buffer, 0);
+    Game game;
+    setup_game(&game, buffer, 5);
+    add_game(server, game);
+    read_line(connection.out, &buffer, 0);
+    connection.name = buffer;
+    printf("setup!\n");
+}
 
 // int index_of_game_name(Server *server, char *name) {
 //     int index = -1;
@@ -209,7 +240,10 @@ void start_server(Server *server) {
         if (sock == -1) {
             exit_with_error(FAILED_LISTEN);
         }
-        // add_connection(server, sock);
+        setup_new_connection(server, sock);
+        // Game game = server->games[server->gameAmount - 1];
+
+
         // for (int i = 0; i < server->connectionAmount; i++) {
         //     switch(server->connections[i].state) {
         //         case(INITIALIZING):

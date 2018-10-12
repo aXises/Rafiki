@@ -103,11 +103,19 @@ void connect_server(Server *server) {
     Connection connection;
     connection.in = fdopen(server->socket, "r");
     connection.out = fdopen(server->socket, "w");
-    fprintf(connection.out, "test\n");
+    fprintf(connection.out, "12345\n");
     fflush(connection.out);
     char *buffer;
     read_line(connection.in, &buffer, 0);
     printf("recieved from server: %s\n", buffer);
+    if (strcmp(buffer, "yes") != 0) {
+        return;
+    }
+    printf("test\n");
+    fprintf(connection.out, "testGame\n");
+    fflush(connection.out);
+    fprintf(connection.out, "testName\n");
+    fflush(connection.out);
 }
 
 int main(int argc, char **argv) {
