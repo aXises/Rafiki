@@ -11,10 +11,12 @@ enum Error {
     INVALID_MESSAGE = 10
 };
 
-typedef struct {
-    FILE *in;
-    FILE *out;
-} Connection;
+enum Argument {
+    KEYFILE = 1,
+    PORT = 2,
+    GAME_NAME = 3,
+    PLAYER_NAME = 4
+};
 
 typedef struct {
     int socket;
@@ -97,32 +99,43 @@ void get_socket(Server *server) {
     freeaddrinfo(res0);
 }
 
-void connect_server(Server *server) {
+void append_char(char **str, char c) {
+    char *newStr = malloc(strlen(*str) + 2);
+    strcpy(newStr, *str);
+    newStr[strlen(*str)] = c;
+    newStr[strlen(*str) + 1] = '\0';
+    printf("newstr: %s\n", newStr);
+    *str = newStr;
+}
+
+void connect_server(Server *server, char *gamename, char *playername) {
     get_socket(server);
     printf("client socket: %i\n", server->socket);
     Connection connection;
-    connection.in = fdopen(server->socket, "r");
-    connection.out = fdopen(server->socket, "w");
-    fprintf(connection.out, "12345\n");
-    fflush(connection.out);
+    connection.in = fdopen(server->socket, "w");
+    connection.out = fdopen(server->socket, "r");
+    send_message(&connection, "12345\n"); 
     char *buffer;
-    read_line(connection.in, &buffer, 0);
+    read_line(connection.out, &buffer, 0);
     printf("recieved from server: %s\n", buffer);
     if (strcmp(buffer, "yes") != 0) {
         return;
     }
-    printf("test\n");
-    fprintf(connection.out, "testGame\n");
-    fflush(connection.out);
-    fprintf(connection.out, "testName\n");
-    fflush(connection.out);
+    // append_char(&gamename, '\n');
+    // append_char(&playername. '\n');
+    send_message(&connection, "%s\n", gamename); 
+    send_message(&connection, "%s\n", playername); 
+}
+
+void setup_server(Server *server, char *port, char *keyfile) {
+    server->port = port;
+    server->key = "12345";
 }
 
 int main(int argc, char **argv) {
     check_args(argc, argv);
     load_keyfile(argv[1]);
     Server server;
-    server.port = "3000";
-    server.key = "12345";
-    connect_server(&server);
+    setup_server(&server, argv[PORT], argv[KEYFILE]);
+    connect_server(&server, argv[GAME_NAME], argv[PLAYER_NAME]);
 }
