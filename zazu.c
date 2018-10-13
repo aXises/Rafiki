@@ -99,37 +99,32 @@ void get_socket(Server *server) {
     freeaddrinfo(res0);
 }
 
-void append_char(char **str, char c) {
-    char *newStr = malloc(strlen(*str) + 2);
-    strcpy(newStr, *str);
-    newStr[strlen(*str)] = c;
-    newStr[strlen(*str) + 1] = '\0';
-    printf("newstr: %s\n", newStr);
-    *str = newStr;
-}
-
 void connect_server(Server *server, char *gamename, char *playername) {
     get_socket(server);
     printf("client socket: %i\n", server->socket);
     Connection connection;
     connection.in = fdopen(server->socket, "w");
     connection.out = fdopen(server->socket, "r");
-    send_message(&connection, "12345\n"); 
+    send_message(connection.in, "12345\n"); 
     char *buffer;
     read_line(connection.out, &buffer, 0);
     printf("recieved from server: %s\n", buffer);
     if (strcmp(buffer, "yes") != 0) {
         return;
     }
-    // append_char(&gamename, '\n');
-    // append_char(&playername. '\n');
-    send_message(&connection, "%s\n", gamename); 
-    send_message(&connection, "%s\n", playername); 
+    send_message(connection.in, "%s\n", gamename); 
+    send_message(connection.in, "%s\n", playername);
+    fclose(connection.in);
+    fclose(connection.out);
 }
 
 void setup_server(Server *server, char *port, char *keyfile) {
     server->port = port;
     server->key = "12345";
+}
+
+void free_server(Server server) {
+    
 }
 
 int main(int argc, char **argv) {
@@ -138,4 +133,5 @@ int main(int argc, char **argv) {
     Server server;
     setup_server(&server, argv[PORT], argv[KEYFILE]);
     connect_server(&server, argv[GAME_NAME], argv[PLAYER_NAME]);
+    free_server(server);
 }

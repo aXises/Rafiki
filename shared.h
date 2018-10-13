@@ -42,7 +42,7 @@ typedef struct {
 } Connection;
 
 void load_keyfile(char *);
-void send_message(Connection *, char *, ...);
+void send_message(FILE *, char *, ...);
 
 #endif
 
