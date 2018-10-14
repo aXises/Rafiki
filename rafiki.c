@@ -20,7 +20,6 @@ enum GamePropState {
 typedef struct {
     int socket;
     char *port;
-    char *name;
     char *key;
     pthread_t mainThread;
     pthread_t listenThread;
@@ -45,8 +44,9 @@ typedef struct {
 // freeing memory when sigint or sigterm is caught
 Server server;
 
+
+
 void free_server(Server server) {
-    printf("free\n");
     for (int i = 0; i < server.gameAmount; i++) {
         GameProp prop = server.games[i];
         for (int j = 0; j < prop.instanceSize; j++) {
@@ -58,9 +58,14 @@ void free_server(Server server) {
                 free(player.state.name);
             }
             free(instance.name);
-            free(instance.players);
+            if (instance.playerCount > 0) {
+                printf("freeing once\n");
+                free(instance.players);
+            }
+            // pthread_join(prop.instanceThreads[j], NULL);
         }
         free(prop.instances);
+        free(prop.instanceThreads);
     }
     free(server.games);
 }
@@ -142,7 +147,6 @@ int get_socket(char *port) {
     if (sock == -1) {
         exit_with_error(FAILED_LISTEN);
     }
-    printf("socket: %i\n",sock);
     freeaddrinfo(res0);
     return sock;
 }
@@ -154,35 +158,52 @@ int get_socket(char *port) {
 //     connection->state = AUTHENCATING;
 // }
 
+pthread_mutex_t gamePropMutex = PTHREAD_MUTEX_INITIALIZER;
+
+void *game_instance_thread(void *arg) {
+    struct Game *g = (struct Game *) arg;
+    // // while(g->playerCount < 2) {};
+    printf("thread:game: %s running on thread: %i\n", g->name, (int)pthread_self());
+    // printf("thread:game has %i players\n", g->playerCount);
+    return NULL;
+}
+
 void setup_player_fd(struct GamePlayer *player, int sock) {
     player->fileDescriptor = sock;
     player->toPlayer = fdopen(sock, "w");
     player->fromPlayer = fdopen(sock, "r");
 }
 
-void add_player(struct Game *game, struct GamePlayer player) {
-    printf("adding player %s\n", player.state.name);
+void add_player(struct Game *game, struct GamePlayer *player) {
+    printf("ADDING PLAYER %s TO GAME %s\n", player->state.name, game->name);
     int size = game->playerCount;
+    pthread_mutex_lock(&gamePropMutex);
     game->players = realloc(game->players, sizeof(struct GamePlayer)
             * (size + 1));
-    game->players[size] = player;
+    game->players[size] = *player;
     game->playerCount++;
+    pthread_mutex_unlock(&gamePropMutex);
 }
 
-void setup_instance(struct Game *game, char *name) {
-    game->players = malloc(0);
-    game->playerCount = 0;
-    game->name = malloc(sizeof(char) * strlen(name) + 1);
-    strcpy(game->name, name);
-    game->name[strlen(game->name)] = '\0';
+struct Game setup_instance(char *name) {
+    struct Game instance;
+    instance.players = malloc(0);
+    instance.playerCount = 0;
+    instance.name = malloc(sizeof(char) * strlen(name) + 1);
+    strcpy(instance.name, name);
+    free(name);
+    instance.name[strlen(instance.name)] = '\0';
+    return instance;
 }
 
 void add_instance(GameProp *prop, struct Game game) {
     int size = prop->instanceSize;
+    pthread_mutex_lock(&gamePropMutex);
     prop->instances = realloc(prop->instances, sizeof(struct Game) *
             (size + 1));
     prop->instances[size] = game;
     prop->instanceSize++;
+    pthread_mutex_unlock(&gamePropMutex);
 }
 
 void free_connection(Connection *connection) {
@@ -228,15 +249,6 @@ int verifiy_player(char *key, struct GamePlayer *player) {
     return 1;
 }
 
-// void *play_game(void *game) {
-//     GameProp *g = (GameProp *) game;
-//     printf("game: %s running on thread: %i\n", g->name, (int)pthread_self());
-//     printf("%i\n", g->connectionAmount);
-//     while(g->connectionAmount < 2) {};
-//     printf("test\n");
-//     return NULL;
-// }
-
 // void handle_new_connection(Server *server, int sock) {
 //     Connection connection;
 //     setup_connection(&connection, sock);
@@ -274,6 +286,40 @@ int verifiy_player(char *key, struct GamePlayer *player) {
 //     }
 // }
 
+void setup_player(struct GamePlayer *player, int id) {
+    struct Player state;
+    initialize_player(&state, id);
+    read_line(player->fromPlayer, &state.name, 0);
+    player->state = state;
+}
+
+void play_game(GameProp *prop, int index) {
+    int size = prop->instanceSize;
+    pthread_mutex_lock(&gamePropMutex);
+    prop->instanceThreads = realloc(prop->instanceThreads, sizeof(pthread_t) *
+        (size));
+    //printf("outsideThread: %s\n", prop->instances[index].name);
+    pthread_create(&prop->instanceThreads[size - 1], NULL, game_instance_thread,
+            (void *) &prop->instances[index]);
+    pthread_mutex_unlock(&gamePropMutex);
+}
+
+void create_new_game(GameProp *prop, struct GamePlayer *player,
+        char *name) {
+    printf("SETTING UP NEW GAME\n");
+    struct Game instance = setup_instance(name);
+    int index = prop->instanceSize;
+    setup_player(player, instance.playerCount);
+    add_player(&instance, player);
+    add_instance(prop, instance);
+    play_game(prop, index);
+}
+
+void add_to_existing_game(GameProp *prop, struct GamePlayer *player,
+        int index) {
+                
+}
+
 void handle_connection(GameProp *prop, int sock) {
     struct GamePlayer player;
     setup_player_fd(&player, sock);
@@ -288,29 +334,18 @@ void handle_connection(GameProp *prop, int sock) {
         free(buffer);
         return;
     }
-    struct Game game;
     int index = index_of_instance(prop, buffer);
     if (index == -1) {
-        printf("setting up new game\n");
-        setup_instance(&game, buffer);
-        free(buffer);
-        add_instance(prop, game);
-        index = prop->instanceSize - 1;
-        game = prop->instances[index];
+        create_new_game(prop, &player, buffer);
     } else {
-        printf("adding to existing game\n");
+        printf("ADDING CONNECTION TO EXISTING GAME\n");
         free(buffer);
-        game = prop->instances[index];
+        //game = prop->instances[index];
     }
-    struct Player state;
-    player.state = state;
-    initialize_player(&player.state, prop->instances[index].playerCount);
-    read_line(player.fromPlayer, &player.state.name, 0);
-    add_player(&prop->instances[index], player);
 }
 
 void *listen_thread(void *arg) {
-    printf("listener thread %i started\n", (int)pthread_self());
+    printf("LISTENER THREAD %i STARTED\n", (int)pthread_self());
     GameProp *prop = (GameProp *) arg;
     struct sockaddr_in in;
     socklen_t size = sizeof(in);
@@ -323,24 +358,23 @@ void *listen_thread(void *arg) {
         handle_connection(prop, sock);
         if (x++ > 0) break;
     }
-    
     for (int i = 0; i < prop->instanceSize; i++) {
+        pthread_join(prop->instanceThreads[i], NULL);
         struct Game game = prop->instances[i];
         printf("Game instance %i has %i players\n", i, game.playerCount);
         for (int j = 0; j < game.playerCount; j++) {
             struct GamePlayer p = game.players[j];
-            printf("- %s\n", p.state.name);
+            printf("- %s : %i\n", p.state.name, p.state.playerId);
         }
     }
-    
     return NULL;
 }
 
 void *game_thread(void *g) {
-    GameProp *game = (GameProp *) g;
-    printf("thread %i listening on %s\n", (int) pthread_self(), game->port);
-    pthread_create(&game->listenThread, NULL, listen_thread, (void *) game);
-    pthread_join(game->listenThread, NULL);
+    GameProp *prop = (GameProp *) g;
+    printf("GAMETHREAD %i LISTENING ON %s\n", (int) pthread_self(),prop->port);
+    pthread_create(&prop->listenThread, NULL, listen_thread, (void *) prop);
+    pthread_join(prop->listenThread, NULL);
     return NULL;
 }
 
@@ -363,19 +397,19 @@ void setup_server(Server *server) {
 void signal_handler(int sig) {
     switch(sig) {
         case(SIGINT):
-            printf("signint detected\n");
+            printf("SIGINT CAUGHT\n");
             for (int i = 0; i < server.gameAmount; i++) {
                 GameProp prop = server.games[i];
-                // pthread_cancel(prop.listenThread);
-                // pthread_cancel(prop.mainThread);
+                pthread_cancel(prop.listenThread);
+                pthread_cancel(prop.mainThread);
                 pthread_join(prop.listenThread, NULL);
-                pthread_detach(prop.listenThread);
+                pthread_join(prop.mainThread, NULL);
             }
-            // free_server(server);
+            free_server(server);
             exit(0);
             break;
         case(SIGTERM):
-            printf("signterm detected\n");
+            printf("SIGTERM CAUGHT\n");
             exit(0);
             break;
     }
@@ -402,7 +436,9 @@ void setup_game_sockets(Server *server, char **ports, int amount) {
         server->games[i].socket = get_socket(ports[i]);
         server->games[i].key = "12345";
         server->games[i].instanceSize = 0;
-        server->games[i].instances = malloc(0);
+        server->games[i].instances = malloc(sizeof(struct Game));
+        server->games[i].instanceThreads = malloc(0);
+        server->games[i].playerMax = amount;
     }
 }
 
@@ -412,9 +448,9 @@ int main(int argc, char **argv) {
     load_keyfile(argv[1]);
     load_deckfile(argv[2]);
     load_statfile(argv[3]);
-    char *ports[2] = {"3000", "3001"};
+    char *ports[1] = {"3000"};
     setup_server(&server);
-    setup_game_sockets(&server, ports, 2);
+    setup_game_sockets(&server, ports, 1);
     start_server(&server);
     free_server(server);
 }
