@@ -33,8 +33,8 @@ typedef struct {
 typedef struct {
     int timeout;
     int socket;
-    int gameAmount;
-    GameProp *games;
+    int portAmount;
+    GameProp *gameProps;
     char *key;
     char **ports;
 } Server;
@@ -44,8 +44,8 @@ typedef struct {
 Server server;
 
 void free_server(Server server) {
-    for (int i = 0; i < server.gameAmount; i++) {
-        GameProp prop = server.games[i];
+    for (int i = 0; i < server.portAmount; i++) {
+        GameProp prop = server.gameProps[i];
         for (int j = 0; j < prop.instanceSize; j++) {
             struct Game instance = prop.instances[j];
             for (int k = 0; k < instance.playerCount; k++) {
@@ -63,7 +63,7 @@ void free_server(Server server) {
         free(prop.instances);
         free(prop.instanceThreads);
     }
-    free(server.games);
+    free(server.gameProps);
 }
 
 void exit_with_error(int error) {
@@ -196,12 +196,12 @@ struct Game setup_instance(char *name) {
 
 void add_instance(GameProp *prop, struct Game game) {
     int size = prop->instanceSize;
-    pthread_mutex_lock(&gamePropMutex);
+   // pthread_mutex_lock(&gamePropMutex);
     prop->instances = realloc(prop->instances, sizeof(struct Game) *
             (size + 1));
     prop->instances[size] = game;
     prop->instanceSize++;
-    pthread_mutex_unlock(&gamePropMutex);
+    //pthread_mutex_unlock(&gamePropMutex);
 }
 
 // void remove_connection(Server *server, int index) {
@@ -289,14 +289,14 @@ void setup_player(struct GamePlayer *player, int id) {
 
 void play_game(GameProp *prop, int index) {
     int size = prop->instanceSize;
-    pthread_mutex_lock(&gamePropMutex);
+    //pthread_mutex_lock(&gamePropMutex);
     prop->instanceThreads = realloc(prop->instanceThreads, sizeof(pthread_t) *
         (size));
     //printf("outsideThread: %s\n", prop->instances[index].name);
     prop->instances[index].data = (void *) &prop->playerMax;
     pthread_create(&prop->instanceThreads[size - 1], NULL, game_instance_thread,
             (void *) &prop->instances[index]);
-    pthread_mutex_unlock(&gamePropMutex);
+    //pthread_mutex_unlock(&gamePropMutex);
 }
 
 void create_new_game(GameProp *prop, struct GamePlayer *player,
@@ -321,10 +321,32 @@ int get_avaliable_game(GameProp *prop, char *name) {
     for (int i = 0; i < prop->instanceSize; i++) {
         if (strcmp(prop->instances[i].name, name) == 0 &&
                 !(prop->instances[i].playerCount >= prop->playerMax)) {
-            index = i;            
+            index = i;
+            break;
         }
     }
     return index;
+}
+
+int get_avaliable_game_all(char *name, char **portOut) {
+    int index = -1;
+    for (int i = 0; i < server.portAmount; i++) {
+        index = get_avaliable_game(&server.gameProps[i], name);
+        if (index != -1) {
+            *portOut = server.gameProps[i].port;
+            break;
+        }
+    }
+    return index;
+}
+
+GameProp *get_prop_by_port(char *port) {
+    for (int i = 0; i < server.portAmount; i++) {
+        if (strcmp(server.gameProps[i].port, port) == 0) {
+            return &server.gameProps[i];
+        }
+    }
+    return NULL;
 }
 
 void handle_connection(GameProp *prop, int sock) {
@@ -341,13 +363,17 @@ void handle_connection(GameProp *prop, int sock) {
         free(buffer);
         return;
     }
-    int index = get_avaliable_game(prop, buffer);
-    printf("game avaliable at %i\n", index);
+    char *port;
+    int index = get_avaliable_game_all(buffer, &port);
     if (index == -1) {
         create_new_game(prop, &player, buffer);
     } else {
         free(buffer);
-        add_to_existing_game(prop, &player, index);
+        if (strcmp(prop->port, port) != 0) {
+            add_to_existing_game(get_prop_by_port(port), &player, index);
+        } else {
+            add_to_existing_game(prop, &player, index);
+        }
     }
 }
 
@@ -363,7 +389,7 @@ void *listen_thread(void *arg) {
             exit_with_error(FAILED_LISTEN);
         }
         handle_connection(prop, sock);
-        if (x++ > 5) break;
+        if (x++ > 4) break;
     }
     for (int i = 0; i < prop->instanceSize; i++) {
         pthread_join(prop->instanceThreads[i], NULL);
@@ -386,18 +412,18 @@ void *game_thread(void *g) {
 }
 
 void start_server(Server *server) {
-    for (int i = 0; i < server->gameAmount; i++) {
-        pthread_create(&server->games[i].mainThread, NULL, game_thread,
-                (void *) &server->games[i]);
+    for (int i = 0; i < server->portAmount; i++) {
+        pthread_create(&server->gameProps[i].mainThread, NULL, game_thread,
+                (void *) &server->gameProps[i]);
     }
-    for (int i = 0; i < server->gameAmount; i++) {
-        pthread_join(server->games[i].mainThread, NULL);
+    for (int i = 0; i < server->portAmount; i++) {
+        pthread_join(server->gameProps[i].mainThread, NULL);
     }
 }
 
 void setup_server(Server *server) {
     server->timeout = 0;
-    server->gameAmount = 0;
+    server->portAmount = 0;
     server->key = "12345";
 }
 
@@ -405,8 +431,8 @@ void signal_handler(int sig) {
     switch(sig) {
         case(SIGINT):
             printf("SIGINT CAUGHT\n");
-            for (int i = 0; i < server.gameAmount; i++) {
-                GameProp prop = server.games[i];
+            for (int i = 0; i < server.portAmount; i++) {
+                GameProp prop = server.gameProps[i];
                 pthread_cancel(prop.listenThread);
                 pthread_cancel(prop.mainThread);
                 pthread_join(prop.listenThread, NULL);
@@ -436,16 +462,16 @@ void setup_ports(Server *server, char **ports) {
 }
 
 void setup_game_sockets(Server *server, char **ports, int amount) {
-    server->games = malloc(sizeof(GameProp) * amount);
-    server->gameAmount = amount;
+    server->gameProps = malloc(sizeof(GameProp) * amount);
+    server->portAmount = amount;
     for (int i = 0; i < amount; i++) {
-        server->games[i].port = ports[i];
-        server->games[i].socket = get_socket(ports[i]);
-        server->games[i].key = "12345";
-        server->games[i].instanceSize = 0;
-        server->games[i].instances = malloc(sizeof(struct Game));
-        server->games[i].instanceThreads = malloc(0);
-        server->games[i].playerMax = 2;
+        server->gameProps[i].port = ports[i];
+        server->gameProps[i].socket = get_socket(ports[i]);
+        server->gameProps[i].key = "12345";
+        server->gameProps[i].instanceSize = 0;
+        server->gameProps[i].instances = malloc(sizeof(struct Game));
+        server->gameProps[i].instanceThreads = malloc(0);
+        server->gameProps[i].playerMax = 2;
     }
 }
 
@@ -455,9 +481,9 @@ int main(int argc, char **argv) {
     load_keyfile(argv[1]);
     load_deckfile(argv[2]);
     load_statfile(argv[3]);
-    char *ports[1] = {"3000"};
+    char *ports[2] = {"3000", "3001"};
     setup_server(&server);
-    setup_game_sockets(&server, ports, 1);
+    setup_game_sockets(&server, ports, 2);
     start_server(&server);
     free_server(server);
 }
