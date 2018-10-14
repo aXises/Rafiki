@@ -26,12 +26,6 @@
 
 #define LOCALHOST "127.0.0.1"
 
-enum ConnectionState {
-    AUTHENCATING = 1,
-    READY = 2,
-    FAILED = 3
-};
-
 typedef struct {
     char *name;
     int socket;
@@ -39,7 +33,6 @@ typedef struct {
     FILE *in;
     FILE *out;
     struct Player player;
-    enum ConnectionState state;
 } Connection;
 
 void load_keyfile(char *);
