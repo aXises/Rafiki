@@ -10,13 +10,6 @@ enum Error {
     SYSTEM_ERR = 10
 };
 
-enum GameState {
-    WAITING = 1,
-    READY = 2,
-    PLAYING = 3,
-    EXITING = 4
-};
-
 typedef struct {
     int socket;
     char *port;
@@ -37,6 +30,8 @@ typedef struct {
     GameProp *gameProps;
     char *key;
     char **ports;
+    int deckSize;
+    struct Card *deck;
 } Server;
 
 // Global variable for signal handling,
@@ -58,6 +53,9 @@ void free_server(Server *server) {
                 free(player.state.name);
             }
             free(instance.name);
+            if (instance.deckSize > 0) {
+                free(instance.deck);
+            }
             if (instance.playerCount > 0) {
                 free(instance.players);
             }
@@ -67,12 +65,16 @@ void free_server(Server *server) {
         free(prop.instanceThreads);
     }
     free(server->gameProps);
+    if (server->deckSize > 0) {
+        free(server->deck);
+    }
 }
 
 void exit_with_error(int error) {
     switch(error) {
         case INVALID_ARG_NUM:
-            fprintf(stderr, "Usage: rafiki keyfile deckfile statfile timeout\n");
+            fprintf(stderr, "Usage: rafiki keyfile deckfile statfile"\
+                    "timeout\n");
             break;
         case INVALID_KEYFILE:
             fprintf(stderr, "Bad keyfile\n");
@@ -100,8 +102,17 @@ void check_args(int argc, char **argv) {
 
 }
 
-void load_deckfile(char *path) {
-
+void load_deckfile(Server *server, char *path) {
+    enum DeckStatus status;
+    status = parse_deck_file(&server->deckSize, &server->deck, path);
+    switch(status) {
+        case (VALID):
+            break;
+        case (DECK_ACCESS):
+            exit_with_error(SYSTEM_ERR);
+        case (DECK_INVALID):
+            exit_with_error(INVALID_DECKFILE);
+    };
 }
 
 void load_statfile(char *path) {
@@ -150,13 +161,15 @@ int get_socket(char *port) {
     return sock;
 }
 
+void display_deck(struct Card *cards, int size) {
+    for (int i = 0; i < size; i++) {
+        printf("card %i %i\n", cards[i].points, cards[i].cost[0]);
+    }
+}
+
 void *game_instance_thread(void *arg) {
-    // struct Game *g = (struct Game *) arg;
-    // int playerMax = *((int *) g->data);
-    // while(g->playerCount < playerMax) {}; // Wait until there is enough players.
+    struct Game *game = (struct Game *) arg;
     printf("Game started!\n");
-    //printf("thread:game: %s running on thread: %i\n", g->name, (int)pthread_self());
-    // printf("thread:game has %i players\n", g->playerCount);
     return NULL;
 }
 
@@ -185,6 +198,7 @@ struct Game setup_instance(char *name) {
     strcpy(instance.name, name);
     free(name);
     instance.name[strlen(instance.name)] = '\0';
+    instance.deckSize = 0;
     return instance;
 }
 
@@ -272,16 +286,20 @@ void send_game_initial_messages(Server *server, GameProp *prop,
 }
 
 void play_game(Server *server, GameProp *prop, int index) {
+    struct Game *instance = &prop->instances[index];
     int size = prop->instanceSize;
-    assign_id(&prop->instances[index]);
-    send_game_initial_messages(server, prop, prop->instances[index]);
+    assign_id(instance);
+    send_game_initial_messages(server, prop, *instance);
+    display_deck(server->deck, server->deckSize);
+    // Copy deck details in to game instance.
+    instance->deckSize = server->deckSize;
+    instance->deck = malloc(sizeof(struct Card) * server->deckSize);
+    memcpy(instance->deck, server->deck, sizeof(struct Card) * server->deckSize);
     pthread_mutex_lock(&gamePropMutex);
     prop->instanceThreads = realloc(prop->instanceThreads, sizeof(pthread_t) *
         (size));
-    prop->instances[index].data = (void *) &index;
     pthread_create(&prop->instanceThreads[size - 1], NULL,
-            game_instance_thread, (void *) &prop->instances[index]);
-
+            game_instance_thread, (void *) instance);
         printf("thread %i\n", (int)prop->instanceThreads[size - 1]);
     pthread_mutex_unlock(&gamePropMutex);
 }
@@ -432,6 +450,7 @@ void setup_server(Server *server) {
     server->timeout = 0;
     server->portAmount = 0;
     server->key = "12345";
+    server->deckSize = 0;
 }
 
 void signal_handler(int sig) {
@@ -489,13 +508,13 @@ void setup_game_sockets(Server *server, char **ports, int amount) {
 int main(int argc, char **argv) {
     setup_signal_handler();
     check_args(argc, argv);
-    load_keyfile(argv[1]);
-    load_deckfile(argv[2]);
-    load_statfile(argv[3]);
     char *ports[2] = {"3000", "3001"};
     Server server;
     sigServer = &server;
     setup_server(&server);
+    load_keyfile(argv[1]);
+    load_deckfile(&server, argv[2]);
+    load_statfile(argv[3]);
     setup_game_sockets(&server, ports, 2);
     start_server(&server);
     free_server(&server);

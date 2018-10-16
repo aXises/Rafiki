@@ -20,14 +20,21 @@
 #include <signal.h>
 #include <errno.h>
 
+/**
+ * A3 includes.
+ **/
 #include <game.h>
 #include <util.h>
 #include <server.h>
+#include <deck.h>
+#include <protocol.h>
+#include <player.h>
+#include <token.h>
 
 #define LOCALHOST "127.0.0.1"
 
 /**
- * Function Prototypes
+ * Function Prototypes.
  **/
 void load_keyfile(char *);
 void send_message(FILE *, char *, ...);
