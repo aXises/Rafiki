@@ -20,9 +20,12 @@ enum Argument {
 
 typedef struct {
     int socket;
+    char *rid;
     char *port;
     char *name;
     char *key;
+    FILE *in;
+    FILE *out;
 } Server;
 
 void exit_with_error(int error, char *playerName) {
@@ -56,11 +59,11 @@ void exit_with_error(int error, char *playerName) {
 }
 
 void check_args(int argc, char **argv) {
-    
+
 }
 
 void load_statfile(char *path) {
-    
+
 }
 
 void get_socket(Server *server) {
@@ -99,23 +102,48 @@ void get_socket(Server *server) {
     freeaddrinfo(res0);
 }
 
+void listen_server(FILE *out, char **output) {
+    read_line(out, output, 0);
+    if (strcmp(*output, "eog") == 0) {
+        printf("EOG RECIEVED\n");
+        exit(0);
+    }
+}
+
+void get_game_info(Server *server, struct Game *game) {
+    char *buffer;
+    listen_server(server->out, &buffer);
+    if (strstr(buffer, "rid") != NULL) {
+    printf("buffer: %s\n", buffer);
+    }
+}
+
+struct Game initialize_game(char *name) {
+    struct Game game;
+    game.name = name;
+    return game;
+}
+
 void connect_server(Server *server, char *gamename, char *playername) {
     get_socket(server);
-    printf("client socket: %i\n", server->socket);
-    Connection connection;
-    connection.in = fdopen(server->socket, "w");
-    connection.out = fdopen(server->socket, "r");
-    send_message(connection.in, "12345\n"); 
+    server->in = fdopen(server->socket, "w");
+    server->out = fdopen(server->socket, "r");
+    send_message(server->in, "12345\n");
     char *buffer;
-    read_line(connection.out, &buffer, 0);
+    read_line(server->out, &buffer, 0);
     printf("recieved from server: %s\n", buffer);
     if (strcmp(buffer, "yes") != 0) {
         return;
     }
-    send_message(connection.in, "%s\n", gamename); 
-    send_message(connection.in, "%s\n", playername);
-    fclose(connection.in);
-    fclose(connection.out);
+    send_message(server->in, "%s\n", gamename);
+    send_message(server->in, "%s\n", playername);
+    // char *b;
+    // read_line(server->out, &b, 0);
+    // printf("buf %s\n", b);
+    struct Game game = initialize_game(gamename);
+    get_game_info(server, &game);
+    fclose(server->in);
+    fclose(server->out);
 }
 
 void setup_server(Server *server, char *port, char *keyfile) {
@@ -124,7 +152,7 @@ void setup_server(Server *server, char *port, char *keyfile) {
 }
 
 void free_server(Server server) {
-    
+
 }
 
 int main(int argc, char **argv) {

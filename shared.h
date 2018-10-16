@@ -20,20 +20,11 @@
 #include <signal.h>
 #include <errno.h>
 
-#include <stdint.h>
 #include <game.h>
 #include <util.h>
+#include <server.h>
 
 #define LOCALHOST "127.0.0.1"
-
-typedef struct {
-    char *name;
-    int socket;
-    int port;
-    FILE *in;
-    FILE *out;
-    struct Player player;
-} Connection;
 
 void load_keyfile(char *);
 void send_message(FILE *, char *, ...);
