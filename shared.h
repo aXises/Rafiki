@@ -26,8 +26,15 @@
 
 #define LOCALHOST "127.0.0.1"
 
+/**
+ * Function Prototypes
+ **/
 void load_keyfile(char *);
 void send_message(FILE *, char *, ...);
+int is_string_digit(char *);
+char **split(char *, char *);
+int check_encoded(char **, int);
+int match_seperators(char *, const int, const int);
 
 #endif
 

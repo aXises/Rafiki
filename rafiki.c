@@ -22,11 +22,12 @@ typedef struct {
     char *port;
     char *key;
     pthread_t mainThread;
-    pthread_t listenThread;
     int playerMax;
     int instanceSize;
     struct Game *instances;
     pthread_t *instanceThreads;
+    int tokens;
+    int points;
 } GameProp;
 
 typedef struct {
@@ -41,6 +42,9 @@ typedef struct {
 // Global variable for signal handling,
 // freeing memory when sigint or sigterm is caught
 Server *sigServer;
+
+// Mutex locking when modifications to GameProp occurs.
+pthread_mutex_t gamePropMutex = PTHREAD_MUTEX_INITIALIZER;
 
 void free_server(Server *server) {
     for (int i = 0; i < server->portAmount; i++) {
@@ -57,7 +61,6 @@ void free_server(Server *server) {
             if (instance.playerCount > 0) {
                 free(instance.players);
             }
-            //printf("free thread %i\n", (int)prop.instanceThreads[j]);
             // pthread_join(prop.instanceThreads[j], NULL);
         }
         free(prop.instances);
@@ -146,8 +149,6 @@ int get_socket(char *port) {
     freeaddrinfo(res0);
     return sock;
 }
-
-pthread_mutex_t gamePropMutex = PTHREAD_MUTEX_INITIALIZER;
 
 void *game_instance_thread(void *arg) {
     // struct Game *g = (struct Game *) arg;
@@ -257,33 +258,23 @@ void assign_id(struct Game *game) {
     }
 }
 
-void send_rid(Server *server, struct Game game) {
+void send_game_initial_messages(Server *server, GameProp *prop,
+        struct Game game) {
     int gameCounter = get_game_amount(server, game.name);
     for (int i = 0; i < game.playerCount; i++) {
-        printf("sending message to player %i\n", game.players[i].state.playerId);
         send_message(game.players[i].toPlayer, "rid%s,%i,%i\n", game.name,
                 gameCounter, game.players[i].state.playerId);
-    }
-}
-
-void send_playinfo(struct Game game) {
-    for (int i = 0; i < game.playerCount; i++) {
-        printf("sending message to player %i\n", game.players[i].state.playerId);
         send_message(game.players[i].toPlayer, "playinfo%i/%i\n",
                 game.players[i].state.playerId, game.playerCount);
+        send_message(game.players[i].toPlayer, "tokens%i\n",
+                prop->tokens);
     }
-}
-
-void send_token(struct Game game) {
-
 }
 
 void play_game(Server *server, GameProp *prop, int index) {
     int size = prop->instanceSize;
     assign_id(&prop->instances[index]);
-    send_rid(server, prop->instances[index]);
-    send_playinfo(prop->instances[index]);
-    send_token(prop->instances[index]);
+    send_game_initial_messages(server, prop, prop->instances[index]);
     pthread_mutex_lock(&gamePropMutex);
     prop->instanceThreads = realloc(prop->instanceThreads, sizeof(pthread_t) *
         (size));
@@ -447,15 +438,15 @@ void signal_handler(int sig) {
     switch(sig) {
         case(SIGINT):
             printf("SIGINT CAUGHT\n");
-            // for (int i = 0; i < server.portAmount; i++) {
-            //     GameProp prop = server.gameProps[i];
-            //     for (int j = 0; j < prop.instanceSize; j++) {
-            //         pthread_cancel(prop.instanceThreads[j]);
-            //         pthread_join(prop.instanceThreads[j], NULL);
-            //     }
-            //     pthread_cancel(prop.mainThread);
-            //     pthread_join(prop.mainThread, NULL);
-            // }
+            for (int i = 0; i < sigServer->portAmount; i++) {
+                GameProp prop = sigServer->gameProps[i];
+                for (int j = 0; j < prop.instanceSize; j++) {
+                    pthread_cancel(prop.instanceThreads[j]);
+                    pthread_join(prop.instanceThreads[j], NULL);
+                }
+                pthread_cancel(prop.mainThread);
+                pthread_join(prop.mainThread, NULL);
+            }
             free_server(sigServer);
             exit(0);
             break;
@@ -490,6 +481,8 @@ void setup_game_sockets(Server *server, char **ports, int amount) {
         server->gameProps[i].instances = malloc(sizeof(struct Game));
         server->gameProps[i].instanceThreads = malloc(0);
         server->gameProps[i].playerMax = 2;
+        server->gameProps[i].tokens = 3;
+        server->gameProps[i].points = 10;
     }
 }
 

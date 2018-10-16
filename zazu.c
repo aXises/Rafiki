@@ -28,6 +28,10 @@ typedef struct {
     FILE *out;
 } Server;
 
+// typedef struct {
+//     struct Game game;
+// } GameInfo;
+
 void exit_with_error(int error, char *playerName) {
     switch(error) {
         case INVALID_ARG_NUM:
@@ -110,12 +114,40 @@ void listen_server(FILE *out, char **output) {
     }
 }
 
-void get_game_info(Server *server, struct Game *game) {
+void get_game_info(Server *server, struct Game *game, struct Player *player) {
     char *buffer;
     listen_server(server->out, &buffer);
     if (strstr(buffer, "rid") != NULL) {
-    printf("buffer: %s\n", buffer);
+        // verifiy rid here.
+        char **splitString = split(buffer, "d");
+        server->rid = malloc(sizeof(char) * (strlen(splitString[1]) + 1));
+        strcpy(server->rid, splitString[1]);
+        server->rid[strlen(splitString[1])] = '\0';
+        free(splitString);
     }
+    listen_server(server->out, &buffer);
+    if (strstr(buffer, "playinfo") != NULL) {
+        // verifiy playinfo here.
+        char **splitString = split(buffer, "o");
+        char **playInfo = split(splitString[1], "/");
+        initialize_player(player, atoi(playInfo[0]));
+        game->playerCount = atoi(playInfo[1]);
+        free(playInfo);
+        free(splitString);
+
+    }
+    listen_server(server->out, &buffer);
+    if (strstr(buffer, "tokens") != NULL) {
+        int output;
+        parse_tokens_message(&output, buffer);
+        if (output == -1) {
+            exit_with_error(COMM_ERR, "");
+        }
+        for (int i = 0; i < (TOKEN_MAX - 1); i++) {
+            game->tokenCount[i] = output;
+        }
+    }
+    free(buffer);
 }
 
 struct Game initialize_game(char *name) {
@@ -137,11 +169,9 @@ void connect_server(Server *server, char *gamename, char *playername) {
     }
     send_message(server->in, "%s\n", gamename);
     send_message(server->in, "%s\n", playername);
-    // char *b;
-    // read_line(server->out, &b, 0);
-    // printf("buf %s\n", b);
     struct Game game = initialize_game(gamename);
-    get_game_info(server, &game);
+    struct Player player;
+    get_game_info(server, &game, &player);
     fclose(server->in);
     fclose(server->out);
 }
