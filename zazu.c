@@ -28,14 +28,13 @@ typedef struct {
     FILE *in;
     FILE *out;
     struct GameState game;
-    struct GamePlayer *players;
 } Server;
 
 // typedef struct {
 //     struct Game game;
 // } GameInfo;
 
-void exit_with_error(int error, char *playerName) {
+void exit_with_error(int error, char playerLetter) {
     switch(error) {
         case INVALID_ARG_NUM:
             fprintf(stderr, "Usage: zazu keyfile port game pname\n");
@@ -56,10 +55,10 @@ void exit_with_error(int error, char *playerName) {
             fprintf(stderr, "Communication Error\n");
             break;
         case PLAYER_DISCONNECTED:
-            fprintf(stderr, "Player %s disconnected\n", playerName);
+            fprintf(stderr, "Player %c disconnected\n", playerLetter);
             break;
         case INVALID_MESSAGE:
-            fprintf(stderr, "Player %s sent invalid message\n", playerName);
+            fprintf(stderr, "Player %c sent invalid message\n", playerLetter);
             break;
     }
     exit(error);
@@ -82,7 +81,7 @@ void get_socket(Server *server) {
     hints.ai_socktype = SOCK_STREAM;
     int error = getaddrinfo(LOCALHOST, server->port, &hints, &res0);
     if (error) {
-        exit_with_error(CONNECT_ERR, "");
+        exit_with_error(CONNECT_ERR, ' ');
     }
     sock = -1;
     for (res = res0; res != NULL; res = res->ai_next) {
@@ -94,15 +93,15 @@ void get_socket(Server *server) {
         }
 
         if (connect(sock, res->ai_addr, res->ai_addrlen) == -1) {
-            sock = -1;
             close(sock);
+            sock = -1;
             continue;
         }
 
         break;  /* okay we got one */
     }
     if (sock == -1) {
-        exit_with_error(CONNECT_ERR, "");
+        exit_with_error(CONNECT_ERR, ' ');
     }
     printf("cause: %s, socket: %i\n", cause, sock);
     server->socket = sock;
@@ -116,8 +115,7 @@ void listen_server(FILE *out, char **output) {
         return;
     }
     if (strcmp(*output, "eog") == 0) {
-        printf("EOG RECIEVED\n");
-        exit(0);
+        exit(NOTHING_WRONG);
     }
 }
 
@@ -135,6 +133,7 @@ enum Error get_game_info(Server *server) {
         strcpy(server->rid, splitString[1]);
         server->rid[strlen(splitString[1])] = '\0';
         free(splitString);
+        free(buffer);
     } else {
         free(buffer);
         return COMM_ERR;
@@ -148,6 +147,7 @@ enum Error get_game_info(Server *server) {
         server->game.playerCount = atoi(playInfo[1]);
         free(playInfo);
         free(splitString);
+        free(buffer);
     } else {
         free(buffer);
         return COMM_ERR;
@@ -162,17 +162,12 @@ enum Error get_game_info(Server *server) {
         for (int i = 0; i < (TOKEN_MAX - 1); i++) {
             server->game.tokenCount[i] = output;
         }
+        free(buffer);
     } else {
+        free(buffer);
         return COMM_ERR;
     }
-    free(buffer);
     return NOTHING_WRONG;
-}
-
-struct Game initialize_game(char *name) {
-    struct Game game;
-    game.name = name;
-    return game;
 }
 
 enum Error connect_server(Server *server, char *gamename, char *playername) {
@@ -182,7 +177,6 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
     send_message(server->in, "12345\n");
     char *buffer;
     read_line(server->out, &buffer, 0);
-    printf("recieved from server: %s\n", buffer);
     if (strcmp(buffer, "yes") != 0) {
         free(buffer);
         return CONNECT_ERR;
@@ -197,10 +191,14 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
 void setup_server(Server *server, char *port, char *keyfile) {
     server->port = port;
     server->key = "12345";
+    server->game.boardSize = 0;
 }
 
 void free_server(Server server) {
-
+    free(server.game.players);
+    free(server.rid);
+    fclose(server.in);
+    fclose(server.out);
 }
 
 void prompt_purchase(Server *server, struct GameState *state) {
@@ -218,7 +216,7 @@ void prompt_purchase(Server *server, struct GameState *state) {
         free(number);
     }
     for (int i = 0; i < TOKEN_MAX; i++) {
-        if (state->tokenCount[i] == 0) {
+        if (state->players[state->selfId].tokens[i] == 0) {
             message.costSpent[i] = 0;
             continue;
         }
@@ -228,7 +226,8 @@ void prompt_purchase(Server *server, struct GameState *state) {
             char *tokenTaken;
             read_line(stdin, &tokenTaken, 0);
             if (is_string_digit(tokenTaken) && atoi(tokenTaken) >= 0 &&
-                    atoi(tokenTaken) <= state->tokenCount[i]) {
+                    atoi(tokenTaken) <=
+                    state->players[state->selfId].tokens[i]) {
                 message.costSpent[i] = atoi(tokenTaken);
                 validToken = 1;
             }
@@ -248,7 +247,8 @@ void prompt_take(Server *server, struct GameState *state) {
             printf("Token-%c> ", print_token(i));
             char *tokenTaken;
             read_line(stdin, &tokenTaken, 0);
-            if (is_string_digit(tokenTaken) && atoi(tokenTaken) >= 0 &&
+            if (strcmp(tokenTaken, "") != 0 && is_string_digit(tokenTaken) &&
+                    atoi(tokenTaken) >= 0 &&
                     atoi(tokenTaken) <= state->tokenCount[i]) {
                 message.tokens[i] = atoi(tokenTaken);
                 validAction = 1;
@@ -281,6 +281,52 @@ void make_move(Server *server, struct GameState *state) {
     }
 }
 
+enum Error handle_messages(Server *server, enum MessageFromHub type,
+        char *line) {
+    enum ErrorCode err = 0;
+    int id;
+    switch (type) {
+        case END_OF_GAME:
+            free(line);
+            // display_eog_info(server->game);
+            return NOTHING_WRONG;
+        case DO_WHAT:
+            printf("Received dowhat\n");
+            make_move(server, &server->game);
+            break;
+        case PURCHASED:
+            err = handle_purchased_message(&server->game, line);
+            break;
+        case TOOK:
+            err = handle_took_message(&server->game, line);
+            break;
+        case TOOK_WILD:
+            err = handle_took_wild_message(&server->game, line);
+            break;
+        case NEW_CARD:
+            err = handle_new_card_message(&server->game, line);
+            break;
+        case DISCO:
+            err = parse_disco_message(&id, line);
+            if (err) {
+                err = COMM_ERR;
+            } else {
+                exit_with_error(PLAYER_DISCONNECTED, id + 'A');
+            }
+        case INVALID:
+            err = parse_invalid_message(&id, line);
+            if (err) {
+                err = COMM_ERR;
+            } else {
+                exit_with_error(INVALID_MESSAGE, id + 'A');
+            }
+        default:
+            free(line);
+            err = COMM_ERR;
+    }
+    return err;
+}
+
 /* Play the game, starting at the first round. Will return at the end of the
  * game, either with 0 or with the relevant exit code.
  */
@@ -289,38 +335,17 @@ enum Error play_game(Server *server) {
     while (1) {
         char* line;
         int readBytes = read_line(server->out, &line, 0);
+        printf("recieved from server: %s\n", line);
         if (readBytes <= 0) {
             return COMM_ERR;
         }
         enum MessageFromHub type = classify_from_hub(line);
-        switch (type) {
-            case END_OF_GAME:
-                free(line);
-                // display_eog_info(server->game);
-                return NOTHING_WRONG;
-            case DO_WHAT:
-                printf("Received dowhat\n");
-                make_move(server, &server->game);
-                break;
-            case PURCHASED:
-                err = handle_purchased_message(&server->game, line);
-                break;
-            case TOOK:
-                err = handle_took_message(&server->game, line);
-                break;
-            case TOOK_WILD:
-                err = handle_took_wild_message(&server->game, line);
-                break;
-            case NEW_CARD:
-                err = handle_new_card_message(&server->game, line);
-                break;
-            default:
-                free(line);
-                return COMM_ERR;
-        }
+        err = handle_messages(server, type, line);
         free(line);
         if (err) {
             return err;
+        } else if (type != DO_WHAT) {
+            display_turn_info(&server->game);
         }
     }
 }
@@ -342,7 +367,7 @@ int main(int argc, char **argv) {
     printf("Connected\n");
     err = get_game_info(&server);
     if (err != 0) {
-        exit_with_error(err, "");
+        exit_with_error(err, ' ');
     }
     // struct GameState g = server.game;
     // struct Player p = server.players.state;
@@ -351,7 +376,4 @@ int main(int argc, char **argv) {
     setup_players(&server, server.game.playerCount);
     play_game(&server);
     free_server(server);
-    free(server.players);
-    fclose(server.in);
-    fclose(server.out);
 }
