@@ -25,12 +25,10 @@
  **/
 #include <game.h>
 #include <util.h>
-#include <server.h>
 #include <deck.h>
 #include <protocol.h>
-#include <player.h>
 #include <token.h>
-
+#include <server.h>
 #define LOCALHOST "127.0.0.1"
 
 /**

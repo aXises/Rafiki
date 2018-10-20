@@ -1,3 +1,4 @@
+
 #include "shared.h"
 
 enum Error {
@@ -37,9 +38,6 @@ typedef struct {
 // Global variable for signal handling,
 // freeing memory when sigint or sigterm is caught
 Server *sigServer;
-
-// Mutex locking when modifications to GameProp occurs.
-pthread_mutex_t gamePropMutex = PTHREAD_MUTEX_INITIALIZER;
 
 void free_server(Server *server) {
     for (int i = 0; i < server->portAmount; i++) {
@@ -167,9 +165,82 @@ void display_deck(struct Card *cards, int size) {
     }
 }
 
+/* Process one player's turn, from sending the do what message to being ready
+ * to send the do what message to the next player. Does not handle retries in
+ * the case where the player sends an invalid message.
+ */
+enum ErrorCode do_what(struct Game* game, int playerId) {
+    enum ErrorCode err = 0;
+    FILE* toPlayer = game->players[playerId].toPlayer;
+    FILE* fromPlayer = game->players[playerId].fromPlayer;
+
+    fputs("dowhat\n", toPlayer);
+    fflush(toPlayer);
+
+    char* line;
+    int readBytes = read_line(fromPlayer, &line, 0);
+    if (readBytes <= 0) {
+        if (ferror(fromPlayer) && errno == EINTR) {
+            free(line);
+            return INTERRUPTED;
+        } else if (feof(fromPlayer)) {
+            free(line);
+            return PLAYER_CLOSED;
+        }
+    }
+    enum MessageFromPlayer type = classify_from_player(line);
+    printf("recieved from player %s\n", line);
+    switch(type) {
+        case PURCHASE:
+            err = handle_purchase_message(playerId, game, line);
+            break;
+        case TAKE:
+            err = handle_take_message(playerId, game, line);
+            break;
+        case WILD:
+            printf("handling wild message\n");
+            handle_wild_message(playerId, game);
+            break;
+        default:
+            free(line);
+            return PROTOCOL_ERROR;
+    }
+    free(line);
+    return err;
+}
+
+/**
+* Send an message to all the players.
+* @param game - The game instance.
+* @param message - The message to send.
+*/
+void send_all(struct Game *game, char *message, ...) {
+    for (int i = 0; i < game->playerCount; i++) {
+        va_list args;
+        va_start(args, message);
+        vfprintf(game->players[i].toPlayer, message, args);
+        fflush(game->players[i].toPlayer);
+        va_end(args);
+    }
+}
+
 void *game_instance_thread(void *arg) {
+    // Start playing game
     struct Game *game = (struct Game *) arg;
     printf("Game started!\n");
+    enum ErrorCode err = 0;
+    while(!is_game_over(game)) {
+        for (int i = 0; i < game->playerCount; i++) {
+            err = do_what(game, i);
+            printf("error from p%i: %i\n", i, err);
+            if (err == PROTOCOL_ERROR) {
+                err = do_what(game, i);
+            }
+            if (err) {
+                send_all(game, "eog\n");
+            }
+        }
+    }
     return NULL;
 }
 
@@ -179,15 +250,16 @@ void setup_player_fd(struct GamePlayer *player, int sock) {
     player->fromPlayer = fdopen(sock, "r");
 }
 
-void add_player(struct Game *game, struct GamePlayer *player) {
+void add_player(struct Game *game, struct GamePlayer *player,
+        pthread_mutex_t *mutex) {
     printf("ADDING PLAYER %s TO GAME %s\n", player->state.name, game->name);
     int size = game->playerCount;
-    pthread_mutex_lock(&gamePropMutex);
+    pthread_mutex_lock(mutex);
     game->players = realloc(game->players, sizeof(struct GamePlayer)
             * (size + 1));
     game->players[size] = *player;
     game->playerCount++;
-    pthread_mutex_unlock(&gamePropMutex);
+    pthread_mutex_unlock(mutex);
 }
 
 struct Game setup_instance(char *name) {
@@ -202,14 +274,14 @@ struct Game setup_instance(char *name) {
     return instance;
 }
 
-void add_instance(GameProp *prop, struct Game game) {
+void add_instance(GameProp *prop, struct Game game, pthread_mutex_t *mutex) {
     int size = prop->instanceSize;
-    pthread_mutex_lock(&gamePropMutex);
+    pthread_mutex_lock(mutex);
     prop->instances = realloc(prop->instances, sizeof(struct Game) *
             (size + 1));
     prop->instances[size] = game;
     prop->instanceSize++;
-    pthread_mutex_unlock(&gamePropMutex);
+    pthread_mutex_unlock(mutex);
 }
 
 int index_of_instance(GameProp *prop, char *name) {
@@ -285,7 +357,8 @@ void send_game_initial_messages(Server *server, GameProp *prop,
     }
 }
 
-void play_game(Server *server, GameProp *prop, int index) {
+void play_game(Server *server, GameProp *prop, int index,
+        pthread_mutex_t *mutex) {
     struct Game *instance = &prop->instances[index];
     int size = prop->instanceSize;
     assign_id(instance);
@@ -294,29 +367,30 @@ void play_game(Server *server, GameProp *prop, int index) {
     // Copy deck details in to game instance.
     instance->deckSize = server->deckSize;
     instance->deck = malloc(sizeof(struct Card) * server->deckSize);
-    memcpy(instance->deck, server->deck, sizeof(struct Card) * server->deckSize);
-    pthread_mutex_lock(&gamePropMutex);
+    memcpy(instance->deck, server->deck, sizeof(struct Card) *
+            server->deckSize);
+    pthread_mutex_lock(mutex);
     prop->instanceThreads = realloc(prop->instanceThreads, sizeof(pthread_t) *
-        (size));
+            (size));
     pthread_create(&prop->instanceThreads[size - 1], NULL,
             game_instance_thread, (void *) instance);
-        printf("thread %i\n", (int)prop->instanceThreads[size - 1]);
-    pthread_mutex_unlock(&gamePropMutex);
+    printf("thread %i\n", (int)prop->instanceThreads[size - 1]);
+    pthread_mutex_unlock(mutex);
 }
 
 void create_new_game(GameProp *prop, struct GamePlayer *player,
-        char *name) {
+        char *name, pthread_mutex_t *mutex) {
     printf("SETTING UP NEW GAME\n");
     struct Game instance = setup_instance(name);
     setup_player(player, instance.playerCount);
-    add_player(&instance, player);
-    add_instance(prop, instance);
+    add_player(&instance, player, mutex);
+    add_instance(prop, instance, mutex);
 }
 
 void add_to_existing_game(GameProp *prop, struct GamePlayer *player,
-        int index) {
+        int index, pthread_mutex_t *mutex) {
     setup_player(player, prop->instances[index].playerCount);
-    add_player(&prop->instances[index], player);
+    add_player(&prop->instances[index], player, mutex);
 }
 
 int get_avaliable_game(GameProp *prop, char *name) {
@@ -353,6 +427,7 @@ GameProp *get_prop_by_port(Server *server, char *port) {
 }
 
 void handle_connection(Server *server, GameProp *prop, int sock) {
+    pthread_mutex_t gamePropMutex = PTHREAD_MUTEX_INITIALIZER;
     struct GamePlayer player;
     setup_player_fd(&player, sock);
     if (!verify_player(prop->key, &player)) {
@@ -370,26 +445,27 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
     int diffPort = 0;
     int index = get_avaliable_game_all(server, buffer, &port);
     if (index == -1) {
-        create_new_game(prop, &player, buffer);
+        create_new_game(prop, &player, buffer, &gamePropMutex);
         index = prop->instanceSize - 1;
     } else {
         free(buffer);
         if (strcmp(prop->port, port) != 0) {
             add_to_existing_game(get_prop_by_port(server, port), &player,
-                    index);
+                    index, &gamePropMutex);
             diffPort = 1;
         } else {
-            add_to_existing_game(prop, &player, index);
+            add_to_existing_game(prop, &player, index, &gamePropMutex);
         }
     }
     if (!diffPort) { // Game not on a different port.
         if (prop->playerMax == prop->instances[index].playerCount) {
-            play_game(server, prop, index);
+            play_game(server, prop, index, &gamePropMutex);
         }
     } else { // Game on a different port? Get proprties of the other port.
         if (prop->playerMax == get_prop_by_port(server, port)
                 ->instances[index].playerCount) {
-            play_game(server, get_prop_by_port(server, port), index);
+            play_game(server, get_prop_by_port(server, port), index,
+                    &gamePropMutex);
         }
     }
 }
@@ -466,6 +542,7 @@ void signal_handler(int sig) {
                 pthread_cancel(prop.mainThread);
                 pthread_join(prop.mainThread, NULL);
             }
+            close(sigServer->socket);
             free_server(sigServer);
             exit(0);
             break;
@@ -508,14 +585,14 @@ void setup_game_sockets(Server *server, char **ports, int amount) {
 int main(int argc, char **argv) {
     setup_signal_handler();
     check_args(argc, argv);
-    char *ports[2] = {"3000", "3001"};
+    char *ports[2] = {"3001"};
     Server server;
     sigServer = &server;
     setup_server(&server);
     load_keyfile(argv[1]);
     load_deckfile(&server, argv[2]);
     load_statfile(argv[3]);
-    setup_game_sockets(&server, ports, 2);
+    setup_game_sockets(&server, ports, 1);
     start_server(&server);
     free_server(&server);
 }
