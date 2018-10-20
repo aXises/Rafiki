@@ -1,5 +1,9 @@
-
 #include "shared.h"
+
+#define LEFT 0
+#define RIGHT 1
+
+#define EXPECTED_STATFILE_SEP 3
 
 enum Error {
     INVALID_ARG_NUM = 1,
@@ -9,6 +13,13 @@ enum Error {
     BAD_TIMEOUT = 5,
     FAILED_LISTEN = 6,
     SYSTEM_ERR = 10
+};
+
+enum StatFile {
+    PORT = 0,
+    START_TOKENS = 1,
+    START_POINTS = 2,
+    START_PLAYERS = 3
 };
 
 typedef struct {
@@ -34,6 +45,18 @@ typedef struct {
     int deckSize;
     struct Card *deck;
 } Server;
+
+typedef struct {
+   char *port;
+   int tokens;
+   int points;
+   int players;
+} Stat;
+
+typedef struct {
+    int amount;
+    Stat *stats;
+} StatFileProp;
 
 typedef struct {
     Server *server;
@@ -67,7 +90,9 @@ void free_server(Server *server) {
         free(prop.instances);
         free(prop.instanceThreads);
     }
-    free(server->gameProps);
+    if (server->portAmount > 0) {
+        free(server->gameProps);
+    }
     if (server->deckSize > 0) {
         free(server->deck);
     }
@@ -118,8 +143,106 @@ void load_deckfile(Server *server, char *path) {
     };
 }
 
-void load_statfile(char *path) {
+int check_stat_line(char *line) {
+    char *newLine = malloc(strlen(line) + 1);
+    strcpy(newLine, line);
+    newLine[strlen(line)] = '\0';
+    if (!match_seperators(newLine, 0, EXPECTED_STATFILE_SEP)) {
+        free(newLine);
+        return 0;
+    }
+    int isValid = 1;
+    char **commaSplit = split(newLine, ",");
+    for (int i = 0; i < EXPECTED_STATFILE_SEP + 1; i++) {
+        if (!is_string_digit(commaSplit[i]) || strcmp(commaSplit[i], "") == 0) {
+            isValid = 0;
+            break;
+        }
+    }
+    free(commaSplit);
+    free(newLine);
+    return isValid;
+}
 
+Stat generate_stat(char *line) {
+    Stat stat;
+    char **contentSplit = split(line, ",");
+    stat.port = malloc(strlen(contentSplit[PORT]) + 1);
+    strcpy(stat.port, contentSplit[PORT]);
+    stat.port[strlen(contentSplit[PORT])] = '\0';
+    stat.tokens = atoi(contentSplit[START_TOKENS]);
+    stat.points = atoi(contentSplit[START_POINTS]);
+    stat.players = atoi(contentSplit[START_PLAYERS]);
+    free(contentSplit);
+    return stat;
+}
+
+int index_of_non_zero_port(StatFileProp prop, char *port) {
+    int index = -1;
+    if (strcmp(port, "0") == 0) {
+        return -1;
+    }
+    for (int i = 0; i < prop.amount; i++) {
+        if (strcmp(prop.stats[i].port, port) == 0) {
+            index = i;
+            break;
+        }
+    }
+    return index;
+}
+
+StatFileProp load_statfile(char *path) {
+    StatFileProp prop;
+    FILE *file = fopen(path, "r");
+    if (file == NULL || !file) {
+        exit_with_error(INVALID_STATFILE);
+    }
+    char *content = malloc(sizeof(char)), character;
+    int counter = 0, lines = 0;
+    while((character = getc(file)) != EOF) {
+        content = realloc(content, sizeof(char) * (counter + 1));
+        content[counter] = character;
+        if (character == '\n') {
+            lines++;
+        }
+        counter++;
+    }
+    content = realloc(content, sizeof(char) * (counter + 1));
+    content[counter] = '\0';
+    int isValid = 1;
+    if (lines == 0 && check_stat_line(content)) {
+        prop.stats = malloc(sizeof(Stat));
+        prop.stats[0] = generate_stat(content);
+        prop.amount = 1;
+    } else if (lines > 0) {
+        char **splitContent = split(content, "\n");
+        prop.stats = malloc(sizeof(Stat) * (lines + 1));
+        prop.amount = 0;
+        for (int i = 0; i < lines + 1; i++) {
+            if (check_stat_line(splitContent[i])) {
+                Stat stat = generate_stat(splitContent[i]);
+                if (index_of_non_zero_port(prop, stat.port) != -1) {
+                    isValid = 0;
+                    break;
+                }
+                prop.stats[i] = stat;
+                prop.amount++;
+            } else {
+                isValid = 0;
+                break;
+            }
+        }
+        free(splitContent);
+    } else {
+        isValid = 0;
+    }
+    fclose(file);
+    free(content);
+    if (!isValid) {
+        free(prop.stats);
+        exit_with_error(INVALID_STATFILE);
+    }
+    return prop;
 }
 
 int get_socket(char *port) {
@@ -596,14 +719,18 @@ void setup_game_sockets(Server *server, char **ports, int amount) {
 int main(int argc, char **argv) {
     setup_signal_handler();
     check_args(argc, argv);
-    char *ports[2] = {"3000", "3001"};
+    //char *ports[2] = {"3000", "3001"};
     Server server;
     sigServer = &server;
     setup_server(&server);
     load_keyfile(argv[1]);
     load_deckfile(&server, argv[2]);
-    load_statfile(argv[3]);
-    setup_game_sockets(&server, ports, 2);
-    start_server(&server);
+    StatFileProp prop = load_statfile(argv[3]);
+    for (int i = 0; i < prop.amount; i++) {
+        free(prop.stats[i].port);
+    }
+    free(prop.stats);
+    // setup_game_sockets(&server, ports, 2);
+    // start_server(&server);
     free_server(&server);
 }
