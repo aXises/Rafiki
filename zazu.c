@@ -1,19 +1,22 @@
 #include <player.h>
 #include "shared.h"
 
+#define EXPECTED_ARGC 5
+
+enum Argument {
+    KEYFILE = 1,
+    PORT = 2,
+    GAME_NAME = 3,
+    RECONNECT_ID = 3,
+    PLAYER_NAME = 4
+};
+
 enum PlayerError {
     CONNECT_ERR = 5,
     BAD_RID = 7,
     COMM_ERR = 8,
     PLAYER_DISCONNECTED = 9,
     INVALID_MESSAGE = 10
-};
-
-enum Argument {
-    KEYFILE = 1,
-    PORT = 2,
-    GAME_NAME = 3,
-    PLAYER_NAME = 4
 };
 
 typedef struct {
@@ -58,7 +61,12 @@ void exit_with_error(int error, char playerLetter) {
 }
 
 void check_args(int argc, char **argv) {
-
+    if (argc != EXPECTED_ARGC || !is_string_digit(argv[PORT])) {
+        exit_with_error(INVALID_ARG_NUM);
+    }
+    if (atoi(argv[PORT]) < 0 || atoi(argv[PORT]) > 65535) {
+        exit_with_error(INVALID_ARG_NUM);
+    }
 }
 
 void load_statfile(char *path) {
