@@ -1,11 +1,8 @@
 #include <player.h>
 #include "shared.h"
 
-enum Error {
-    INVALID_ARG_NUM = 1,
-    INVALID_KEYFILE = 2,
+enum PlayerError {
     CONNECT_ERR = 5,
-    FAILED_LISTEN = 6,
     BAD_RID = 7,
     COMM_ERR = 8,
     PLAYER_DISCONNECTED = 9,
@@ -29,10 +26,6 @@ typedef struct {
     FILE *out;
     struct GameState game;
 } Server;
-
-// typedef struct {
-//     struct Game game;
-// } GameInfo;
 
 void exit_with_error(int error, char playerLetter) {
     switch(error) {
@@ -129,9 +122,9 @@ enum Error get_game_info(Server *server) {
     if (strstr(buffer, "rid") != NULL) {
         // verifiy rid here.
         char **splitString = split(buffer, "d");
-        server->rid = malloc(sizeof(char) * (strlen(splitString[1]) + 1));
-        strcpy(server->rid, splitString[1]);
-        server->rid[strlen(splitString[1])] = '\0';
+        server->rid = malloc(sizeof(char) * (strlen(splitString[RIGHT]) + 1));
+        strcpy(server->rid, splitString[RIGHT]);
+        server->rid[strlen(splitString[RIGHT])] = '\0';
         free(splitString);
         free(buffer);
     } else {
@@ -142,9 +135,9 @@ enum Error get_game_info(Server *server) {
     if (strstr(buffer, "playinfo") != NULL) {
         // verifiy playinfo here.
         char **splitString = split(buffer, "o");
-        char **playInfo = split(splitString[1], "/");
-        server->game.selfId = atoi(playInfo[0]);
-        server->game.playerCount = atoi(playInfo[1]);
+        char **playInfo = split(splitString[RIGHT], "/");
+        server->game.selfId = atoi(playInfo[LEFT]);
+        server->game.playerCount = atoi(playInfo[RIGHT]);
         free(playInfo);
         free(splitString);
         free(buffer);
@@ -174,7 +167,7 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
     get_socket(server);
     server->in = fdopen(server->socket, "w");
     server->out = fdopen(server->socket, "r");
-    send_message(server->in, "12345\n");
+    send_message(server->in, "%s\n", server->key);
     char *buffer;
     read_line(server->out, &buffer, 0);
     if (strcmp(buffer, "yes") != 0) {
@@ -188,15 +181,15 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
     return NOTHING_WRONG;
 }
 
-void setup_server(Server *server, char *port, char *keyfile) {
+void setup_server(Server *server, char *port) {
     server->port = port;
-    server->key = "12345";
     server->game.boardSize = 0;
 }
 
 void free_server(Server server) {
     free(server.game.players);
     free(server.rid);
+    free(server.key);
     fclose(server.in);
     fclose(server.out);
 }
@@ -359,20 +352,17 @@ void setup_players(Server *server, int amount) {
 
 int main(int argc, char **argv) {
     check_args(argc, argv);
-    load_keyfile(argv[1]);
     Server server;
-    setup_server(&server, argv[PORT], argv[KEYFILE]);
-    enum Error err = 0;
-    err = connect_server(&server, argv[GAME_NAME], argv[PLAYER_NAME]);
-    printf("Connected\n");
-    err = get_game_info(&server);
-    if (err != 0) {
+    enum Error err = load_keyfile(&server.key,  argv[KEYFILE]);
+    if (err) {
         exit_with_error(err, ' ');
     }
-    // struct GameState g = server.game;
-    // struct Player p = server.players.state;
-    // printf("game info: %s %i %i %i\n", server.gameName, g.playerCount, p.playerId, g.tokenCount[0]);
-    // Starting playing game
+    setup_server(&server, argv[PORT]);
+    err = connect_server(&server, argv[GAME_NAME], argv[PLAYER_NAME]);
+    err = get_game_info(&server);
+    if (err) {
+        exit_with_error(err, ' ');
+    }
     setup_players(&server, server.game.playerCount);
     play_game(&server);
     free_server(server);

@@ -29,12 +29,26 @@
 #include <protocol.h>
 #include <token.h>
 #include <server.h>
+
 #define LOCALHOST "127.0.0.1"
+
+#define LEFT 0
+#define RIGHT 1
+
+enum Error {
+    INVALID_ARG_NUM = 1,
+    INVALID_KEYFILE = 2,
+    INVALID_DECKFILE = 3,
+    INVALID_STATFILE = 4,
+    BAD_TIMEOUT = 5,
+    FAILED_LISTEN = 6,
+    SYSTEM_ERR = 10
+};
 
 /**
  * Function Prototypes.
  **/
-void load_keyfile(char *);
+enum Error load_keyfile(char **, char *);
 void send_message(FILE *, char *, ...);
 int is_string_digit(char *);
 char **split(char *, char *);

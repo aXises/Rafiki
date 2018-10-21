@@ -1,7 +1,29 @@
 #include "shared.h"
 
-void load_keyfile(char *path) {
-
+enum Error load_keyfile(char **output, char *path) {
+    FILE *file = fopen(path, "r");
+    if (file == NULL || !file) {
+        return SYSTEM_ERR;
+    }
+    char character;
+    *output = malloc(0);
+    int counter = 0;
+    while((character = getc(file)) != EOF) {
+        if (character == '\n') {
+            free(*output);
+            return INVALID_KEYFILE;
+        }
+        *output = realloc(*output, sizeof(char) * (counter + 1));
+        (*output)[counter] = character;
+        counter++;
+    }
+    if (counter < 1) {
+        free(*output);
+        return INVALID_KEYFILE;
+    }
+    *output = realloc(*output, sizeof(char) * (counter + 1));
+    (*output)[counter] = '\0';
+    return NOTHING_WRONG;
 }
 
 void send_message(FILE *in, char *message, ...) {
@@ -60,6 +82,7 @@ int check_encoded(char **content, int length) {
     }
     return 1;
 }
+
 
 /**
 * Match the amount of seperators in a string.

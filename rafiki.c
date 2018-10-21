@@ -1,25 +1,20 @@
 #include "shared.h"
 
-#define LEFT 0
-#define RIGHT 1
-
 #define EXPECTED_STATFILE_SEP 3
+#define EXPECTED_ARGC 5
 
-enum Error {
-    INVALID_ARG_NUM = 1,
-    INVALID_KEYFILE = 2,
-    INVALID_DECKFILE = 3,
-    INVALID_STATFILE = 4,
-    BAD_TIMEOUT = 5,
-    FAILED_LISTEN = 6,
-    SYSTEM_ERR = 10
+enum Args {
+    KEYFILE = 1,
+    DECKFILE = 2,
+    STATFILE = 3,
+    TIMEOUT = 4
 };
 
 enum StatFile {
     PORT = 0,
     START_TOKENS = 1,
     START_POINTS = 2,
-    START_PLAYERS = 3
+    START_PLAYERS = 3,
 };
 
 typedef struct {
@@ -33,6 +28,7 @@ typedef struct {
     pthread_t *instanceThreads;
     int startToken;
     int winPoints;
+    int timeout;
 } GameProp;
 
 typedef struct {
@@ -85,10 +81,12 @@ void free_server(Server *server) {
             if (instance.playerCount > 0) {
                 free(instance.players);
             }
-            // pthread_join(prop.instanceThreads[j], NULL);
+            pthread_join(prop.instanceThreads[j], NULL);
         }
         free(prop.instances);
         free(prop.instanceThreads);
+        free(prop.port);
+        free(prop.key);
     }
     if (server->portAmount > 0) {
         free(server->gameProps);
@@ -101,7 +99,7 @@ void free_server(Server *server) {
 void exit_with_error(int error) {
     switch(error) {
         case INVALID_ARG_NUM:
-            fprintf(stderr, "Usage: rafiki keyfile deckfile statfile"\
+            fprintf(stderr, "Usage: rafiki keyfile deckfile statfile "\
                     "timeout\n");
             break;
         case INVALID_KEYFILE:
@@ -127,7 +125,9 @@ void exit_with_error(int error) {
 }
 
 void check_args(int argc, char **argv) {
-
+    if (argc != EXPECTED_ARGC || !is_string_digit(argv[TIMEOUT])) {
+        exit_with_error(INVALID_ARG_NUM);
+    }
 }
 
 void load_deckfile(Server *server, char *path) {
@@ -198,7 +198,7 @@ StatFileProp load_statfile(char *path) {
         exit_with_error(INVALID_STATFILE);
     }
     char *content = malloc(sizeof(char)), character;
-    int counter = 0, lines = 0;
+    int counter = 0, lines = 0, isValid = 1;
     while((character = getc(file)) != EOF) {
         content = realloc(content, sizeof(char) * (counter + 1));
         content[counter] = character;
@@ -209,7 +209,6 @@ StatFileProp load_statfile(char *path) {
     }
     content = realloc(content, sizeof(char) * (counter + 1));
     content[counter] = '\0';
-    int isValid = 1;
     if (lines == 0 && check_stat_line(content)) {
         prop.stats = malloc(sizeof(Stat));
         prop.stats[0] = generate_stat(content);
@@ -255,11 +254,6 @@ int get_socket(char *port) {
     int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
     if (error) {
         exit_with_error(FAILED_LISTEN);
-    }
-    if (strcmp(port, "0") == 0) {
-        sock = -1;
-    } else {
-        sock = -1;
     }
     for (res = res0; res != NULL; res = res->ai_next) {
         sock = socket(res->ai_family, res->ai_socktype,
@@ -616,13 +610,14 @@ void *listen_thread(void *argv) {
     Args *args = (Args *) argv;
     Server *server = args->server;
     GameProp *prop = args->prop;
-    printf("%s\n", prop->port);
+    printf("%s %i\n", prop->port, prop->socket);
     printf("LISTENER THREAD %i STARTED\n", (int) pthread_self());
     struct sockaddr_in in;
     socklen_t size = sizeof(in);
     while(1) {
         int sock = accept(prop->socket, (struct sockaddr *) &in, &size);
         if (sock == -1) {
+            printf("fail here\n");
             exit_with_error(FAILED_LISTEN);
         }
         handle_connection(server, prop, sock);
@@ -696,41 +691,48 @@ void setup_signal_handler() {
     sigaction(SIGTERM, &sa, NULL);
 }
 
-void setup_ports(Server *server, char **ports) {
-    server->ports = ports;
-}
-
-void setup_game_sockets(Server *server, char **ports, int amount) {
-    server->gameProps = malloc(sizeof(GameProp) * amount);
-    server->portAmount = amount;
-    for (int i = 0; i < amount; i++) {
-        server->gameProps[i].port = ports[i];
-        server->gameProps[i].socket = get_socket(ports[i]);
-        server->gameProps[i].key = "12345";
+void setup_game_sockets(Server *server, StatFileProp prop, char *key,
+        int timeout) {
+    server->gameProps = malloc(sizeof(GameProp) * prop.amount);
+    server->portAmount = prop.amount;
+    for (int i = 0; i < prop.amount; i++) {
+        server->gameProps[i].socket = get_socket(prop.stats[i].port);
+        server->gameProps[i].port = malloc(sizeof(char) *
+                (strlen(prop.stats[i].port) + 1));
+        strcpy(server->gameProps[i].port, prop.stats[i].port);
+        server->gameProps[i].port[strlen(prop.stats[i].port)] = '\0';
+        server->gameProps[i].key = malloc(sizeof(char) * (strlen(key) + 1));
+        strcpy(server->gameProps[i].key, key);
+        server->gameProps[i].key[strlen(key)] = '\0';
         server->gameProps[i].instanceSize = 0;
         server->gameProps[i].instances = malloc(sizeof(struct Game));
         server->gameProps[i].instanceThreads = malloc(0);
-        server->gameProps[i].playerMax = 2;
-        server->gameProps[i].startToken = 3;
-        server->gameProps[i].winPoints = 10;
+        server->gameProps[i].playerMax = prop.stats[i].players;
+        server->gameProps[i].startToken = prop.stats[i].tokens;
+        server->gameProps[i].winPoints = prop.stats[i].points;
+        server->gameProps[i].timeout = timeout;
     }
+    for (int i = 0; i < prop.amount; i++) {
+        free(prop.stats[i].port);
+    }
+    free(prop.stats);
+    free(key);
 }
 
 int main(int argc, char **argv) {
     setup_signal_handler();
     check_args(argc, argv);
-    //char *ports[2] = {"3000", "3001"};
     Server server;
     sigServer = &server;
     setup_server(&server);
-    load_keyfile(argv[1]);
-    load_deckfile(&server, argv[2]);
-    StatFileProp prop = load_statfile(argv[3]);
-    for (int i = 0; i < prop.amount; i++) {
-        free(prop.stats[i].port);
+    char *key;
+    enum Error err = load_keyfile(&key, argv[KEYFILE]);
+    if (err) {
+        exit_with_error(err);
     }
-    free(prop.stats);
-    // setup_game_sockets(&server, ports, 2);
-    // start_server(&server);
+    load_deckfile(&server, argv[DECKFILE]);
+    StatFileProp prop = load_statfile(argv[STATFILE]);
+    setup_game_sockets(&server, prop, key, atoi(argv[TIMEOUT]));
+    start_server(&server);
     free_server(&server);
 }
