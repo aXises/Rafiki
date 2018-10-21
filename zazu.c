@@ -62,10 +62,10 @@ void exit_with_error(int error, char playerLetter) {
 
 void check_args(int argc, char **argv) {
     if (argc != EXPECTED_ARGC || !is_string_digit(argv[PORT])) {
-        exit_with_error(INVALID_ARG_NUM);
+        exit_with_error(INVALID_ARG_NUM, ' ');
     }
     if (atoi(argv[PORT]) < 0 || atoi(argv[PORT]) > 65535) {
-        exit_with_error(INVALID_ARG_NUM);
+        exit_with_error(INVALID_ARG_NUM, ' ');
     }
 }
 
