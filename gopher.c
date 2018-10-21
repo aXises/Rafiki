@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <game.h>
 
+#define EXPECTED_ARGC 2
+
 enum Error {
     INVALID_ARG_NUM = 1,
     CONNECT_ERR = 3,
@@ -14,13 +16,13 @@ typedef struct {
 
 void exit_with_error(int error) {
     switch(error) {
-        case 1:
+        case INVALID_ARG_NUM:
             fprintf(stderr, "Usage: gopher port\n");
             break;
-        case 3:
+        case CONNECT_ERR:
             fprintf(stderr, "Failed to connect\n");
             break;
-        case 4:
+        case INVALID_SERVER:
             fprintf(stderr, "Invalid server\n");
             break;
     }
@@ -28,7 +30,9 @@ void exit_with_error(int error) {
 }
 
 void check_args(int argc, char **argv) {
-    
+    if (argc != EXPECTED_ARGC) {
+        exit_with_error(INVALID_ARG_NUM);
+    }
 }
 
 int main(int argc, char **argv) {

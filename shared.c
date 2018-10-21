@@ -3,7 +3,7 @@
 enum Error load_keyfile(char **output, char *path) {
     FILE *file = fopen(path, "r");
     if (file == NULL || !file) {
-        return SYSTEM_ERR;
+        return INVALID_KEYFILE;
     }
     char character;
     *output = malloc(0);

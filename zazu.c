@@ -11,14 +11,6 @@ enum Argument {
     PLAYER_NAME = 4
 };
 
-enum PlayerError {
-    CONNECT_ERR = 5,
-    BAD_RID = 7,
-    COMM_ERR = 8,
-    PLAYER_DISCONNECTED = 9,
-    INVALID_MESSAGE = 10
-};
-
 typedef struct {
     int socket;
     char *rid;
@@ -39,10 +31,10 @@ void exit_with_error(int error, char playerLetter) {
             fprintf(stderr, "Bad keyfile\n");
             break;
         case CONNECT_ERR:
-            fprintf(stderr, "Bad timeout\n");
+            fprintf(stderr, "Failed to connect\n");
             break;
-        case FAILED_LISTEN:
-            fprintf(stderr, "Failed listen\n");
+        case BAD_AUTH:
+            fprintf(stderr, "Bad auth\n");
             break;
         case BAD_RID:
             fprintf(stderr, "Bad reconnect id\n");
@@ -73,16 +65,16 @@ void load_statfile(char *path) {
 
 }
 
-void get_socket(Server *server) {
+enum Error get_socket(int *output, char *port) {
     struct addrinfo hints, *res, *res0;
     int sock;
     const char *cause = NULL;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    int error = getaddrinfo(LOCALHOST, server->port, &hints, &res0);
+    int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
     if (error) {
-        exit_with_error(CONNECT_ERR, ' ');
+        return CONNECT_ERR;
     }
     sock = -1;
     for (res = res0; res != NULL; res = res->ai_next) {
@@ -102,11 +94,12 @@ void get_socket(Server *server) {
         break;  /* okay we got one */
     }
     if (sock == -1) {
-        exit_with_error(CONNECT_ERR, ' ');
+        return CONNECT_ERR;
     }
     printf("cause: %s, socket: %i\n", cause, sock);
-    server->socket = sock;
+    *output = sock;
     freeaddrinfo(res0);
+    return NOTHING_WRONG;
 }
 
 void listen_server(FILE *out, char **output) {
@@ -172,7 +165,10 @@ enum Error get_game_info(Server *server) {
 }
 
 enum Error connect_server(Server *server, char *gamename, char *playername) {
-    get_socket(server);
+    enum Error err = get_socket(&server->socket, server->port);
+    if (err) {
+        return err;
+    }
     server->in = fdopen(server->socket, "w");
     server->out = fdopen(server->socket, "r");
     send_message(server->in, "%s\n", server->key);
@@ -187,11 +183,6 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
     server->gameName = gamename;
     free(buffer);
     return NOTHING_WRONG;
-}
-
-void setup_server(Server *server, char *port) {
-    server->port = port;
-    server->game.boardSize = 0;
 }
 
 void free_server(Server server) {
@@ -361,12 +352,17 @@ void setup_players(Server *server, int amount) {
 int main(int argc, char **argv) {
     check_args(argc, argv);
     Server server;
-    enum Error err = load_keyfile(&server.key,  argv[KEYFILE]);
+    server.port = argv[PORT];
+    server.game.boardSize = 0;
+    enum Error err;
+    err = load_keyfile(&server.key,  argv[KEYFILE]);
     if (err) {
         exit_with_error(err, ' ');
     }
-    setup_server(&server, argv[PORT]);
     err = connect_server(&server, argv[GAME_NAME], argv[PLAYER_NAME]);
+    if (err) {
+        exit_with_error(err, ' ');
+    }
     err = get_game_info(&server);
     if (err) {
         exit_with_error(err, ' ');

@@ -41,8 +41,14 @@ enum Error {
     INVALID_DECKFILE = 3,
     INVALID_STATFILE = 4,
     BAD_TIMEOUT = 5,
+    CONNECT_ERR = 5,
     FAILED_LISTEN = 6,
-    SYSTEM_ERR = 10
+    BAD_AUTH = 6,
+    BAD_RID = 7,
+    COMM_ERR = 8,
+    PLAYER_DISCONNECTED = 9,
+    SYSTEM_ERR = 10,
+    INVALID_MESSAGE = 10
 };
 
 /**
@@ -54,6 +60,7 @@ int is_string_digit(char *);
 char **split(char *, char *);
 int check_encoded(char **, int);
 int match_seperators(char *, const int, const int);
+enum Error get_socket(int *, char *);
 
 #endif
 
