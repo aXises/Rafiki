@@ -9,6 +9,17 @@
 
 #define BOARD_SIZE 8
 
+/* The error codes for game play scenarios.
+ */
+enum ErrorCode {
+    NOTHING_WRONG = 0,
+    COMMUNICATION_ERROR = 1,
+    PLAYER_CLOSED = 2,
+    PROTOCOL_ERROR = 3,
+    ILLEGAL_MOVE = 4,
+    INTERRUPTED = 5,
+};
+
 /* The information and state that describes a single player.
 */
 struct Player {
@@ -20,6 +31,10 @@ struct Player {
     int tokens[TOKEN_MAX];
     // The score this player has
     int score;
+    // The name of the player
+    char* name;
+    // Place for arbitrary data
+    void* data;
 };
 
 /* Set the initial conditions of a player. Takes as inputs a pointer to the

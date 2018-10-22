@@ -17,6 +17,12 @@ enum StatFile {
     START_PLAYERS = 3,
 };
 
+enum ConnectionType {
+    PLAYER_CONNECT,
+    SCORES_CONNECT,
+    PLAYER_CONNECT_INVALID
+};
+
 typedef struct {
     char *playerName;
     int tokensTaken;
@@ -84,9 +90,9 @@ Server *sigServer;
 void free_server(Server *server) {
     for (int i = 0; i < server->portAmount; i++) {
         GameProp prop = server->gameProps[i];
+        printf("** %i\n", prop.instanceSize);
         for (int j = 0; j < prop.instanceSize; j++) {
             struct Game instance = prop.instances[j];
-            pthread_join(prop.instanceThreads[j], NULL);
             for (int k = 0; k < instance.playerCount; k++) {
                 struct GamePlayer player = instance.players[k];
                 fclose(player.toPlayer);
@@ -94,7 +100,9 @@ void free_server(Server *server) {
                 free(player.state.name);
             }
             free(instance.name);
-            free(instance.deck);
+            if (instance.playerCount == prop.playerMax) {
+                free(instance.deck);
+            }
             if (instance.playerCount > 0) {
                 free(instance.players);
             }
@@ -658,14 +666,36 @@ GameProp *get_prop_by_port(Server *server, char *port) {
     return NULL;
 }
 
-void handle_connection(Server *server, GameProp *prop, int sock) {
-    pthread_mutex_t gamePropLock = PTHREAD_MUTEX_INITIALIZER;
-    struct GamePlayer player;
-    setup_player_fd(&player, sock);
-    if (!verify_player(prop->key, &player)) {
-        // free
-        return;
+void combine_all_scores(Server *server) {
+
+}
+
+enum ConnectionType verifiy_connection(GameProp *prop, FILE *toConnection,
+        FILE *fromConnection) {
+    enum ConnectionType type;
+    char *buffer;
+    read_line(fromConnection, &buffer, 0);
+    if (strcmp(buffer, "scores") == 0) {
+        type = SCORES_CONNECT;
+    } else if (!strcmp(prop->key, buffer) == 0) {
+        send_message(toConnection, "no\n");
+        fclose(toConnection);
+        fclose(fromConnection);
+        type = PLAYER_CONNECT_INVALID;
+    } else {
+        send_message(toConnection, "yes\n");
+        type = PLAYER_CONNECT;
     }
+    free(buffer);
+    return type;
+}
+
+void handle_player_connect(Server *server, GameProp *prop, FILE *toConnection,
+        FILE *fromConnection, int sock, pthread_mutex_t gamePropLock) {
+    struct GamePlayer player;
+    player.fileDescriptor = sock;
+    player.toPlayer = toConnection;
+    player.fromPlayer = fromConnection;
     char *buffer;
     read_line(player.fromPlayer, &buffer, 0);
     if (strcmp(buffer, "reconnect") == 0) {
@@ -676,10 +706,10 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
     char *port;
     int diffPort = 0;
     int index = get_avaliable_game_all(server, buffer, &port);
-    if (index == -1) {
+    if (index == -1) { // Game does not exist, create it.
         create_new_game(prop, &player, buffer, &gamePropLock);
         index = prop->instanceSize - 1;
-    } else {
+    } else { // Game exists, add to existing game.
         free(buffer);
         if (strcmp(prop->port, port) != 0) {
             add_to_existing_game(get_prop_by_port(server, port), &player,
@@ -689,7 +719,7 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
             add_to_existing_game(prop, &player, index, &gamePropLock);
         }
     }
-    if (!diffPort) { // Game not on a different port.
+    if (!diffPort) { // Game not on a different port, play the game.
         if (prop->playerMax == prop->instances[index].playerCount) {
             play_game(server, prop, index, &gamePropLock);
         }
@@ -699,6 +729,24 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
             play_game(server, get_prop_by_port(server, port), index,
                     &gamePropLock);
         }
+    }
+}
+
+void handle_connection(Server *server, GameProp *prop, int sock) {
+    pthread_mutex_t gamePropLock = PTHREAD_MUTEX_INITIALIZER;
+    FILE *toConnection = fdopen(sock, "w");
+    FILE *fromConnection = fdopen(sock, "r");
+    enum ConnectionType type = verifiy_connection(prop, toConnection,
+            fromConnection);
+    switch(type) {
+        case(PLAYER_CONNECT):
+            handle_player_connect(server, prop, toConnection, fromConnection,
+                    sock, gamePropLock);
+            break;
+        case(SCORES_CONNECT):
+            break;
+        case(PLAYER_CONNECT_INVALID):
+            break;
     }
 }
 
@@ -761,8 +809,10 @@ void signal_handler(int sig) {
             for (int i = 0; i < sigServer->portAmount; i++) {
                 GameProp prop = sigServer->gameProps[i];
                 for (int j = 0; j < prop.instanceSize; j++) {
-                    pthread_cancel(prop.instanceThreads[j]);
-                    pthread_join(prop.instanceThreads[j], NULL);
+                    if (prop.instances[j].playerCount == prop.playerMax) {
+                        pthread_cancel(prop.instanceThreads[j]);
+                        pthread_join(prop.instanceThreads[j], NULL);
+                    }
                 }
                 pthread_cancel(prop.mainThread);
                 pthread_join(prop.mainThread, NULL);
