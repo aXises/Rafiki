@@ -17,6 +17,11 @@ enum StatFile {
     START_PLAYERS = 3,
 };
 
+enum ConnectionType {
+    PLAYER_CONNECT,
+    SCORES_CONNECT,
+};
+
 typedef struct {
     char *playerName;
     int tokensTaken;
@@ -260,8 +265,47 @@ StatFileProp load_statfile(char *path) {
     return prop;
 }
 
+// enum Error get_socket(int *output, char *port) {
+//     struct addrinfo hints, *res, *res0;
+//     int sock;
+//     memset(&hints, 0, sizeof(hints));
+//     hints.ai_family = AF_INET;
+//     hints.ai_socktype = SOCK_STREAM;
+//     hints.ai_flags = AI_PASSIVE;
+//     int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
+//     if (error) {
+//         freeaddrinfo(res0);
+//         return FAILED_LISTEN;
+//     }
+//     for (res = res0; res != NULL; res = res->ai_next) {
+//         sock = socket(res->ai_family, res->ai_socktype,
+//                 res->ai_protocol);
+//         if (sock == -1) {
+//             sock = -1;
+//             continue;
+//         }
+//         if (bind(sock, res->ai_addr, res->ai_addrlen) == -1) {
+//             sock = -1;
+//             close(sock);
+//             continue;
+//         }
+//         if (listen(sock, 5) == -1) {
+//             sock = -1;
+//             close(sock);
+//             continue;
+//         }
+//         break;  /* okay we got one */
+//     }
+//     if (sock == -1) {
+//         freeaddrinfo(res0);
+//         return FAILED_LISTEN;
+//     }
+//     freeaddrinfo(res0);
+//     *output = sock;
+//     return NOTHING_WRONG;
+// }
 
-enum Error get_socket(int *output, char *port) {
+int get_socket(char *port) {
     struct addrinfo hints, *res, *res0;
     int sock;
     memset(&hints, 0, sizeof(hints));
@@ -270,8 +314,12 @@ enum Error get_socket(int *output, char *port) {
     hints.ai_flags = AI_PASSIVE;
     int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
     if (error) {
-        freeaddrinfo(res0);
-        return FAILED_LISTEN;
+        exit_with_error(FAILED_LISTEN);
+    }
+    if (strcmp(port, "0") == 0) {
+        sock = -1;
+    } else {
+        sock = -1;
     }
     for (res = res0; res != NULL; res = res->ai_next) {
         sock = socket(res->ai_family, res->ai_socktype,
@@ -293,12 +341,11 @@ enum Error get_socket(int *output, char *port) {
         break;  /* okay we got one */
     }
     if (sock == -1) {
-        freeaddrinfo(res0);
-        return FAILED_LISTEN;
+        exit_with_error(FAILED_LISTEN);
     }
+    printf("socket: %i\n",sock);
     freeaddrinfo(res0);
-    *output = sock;
-    return NOTHING_WRONG;
+    return sock;
 }
 
 int scores_index_of_player(GameProp *prop, char *name) {
@@ -515,14 +562,17 @@ int index_of_instance(GameProp *prop, char *name) {
     return index;
 }
 
-int verify_player(char *key, struct GamePlayer *player) {
+int verify_player(char *key, struct GamePlayer player) {
     char *buffer;
-    read_line(player->fromPlayer, &buffer, 0);
+    printf("test %i\n", player.fileDescriptor);
+    read_line(player.fromPlayer, &buffer, 0);
+    printf("rec: %s\n", buffer);
     if (!strcmp(key, buffer) == 0) {
-        send_message(player->toPlayer, "no\n");
+        free(buffer);
+        send_message(player.toPlayer, "no\n");
         return 0;
     }
-    send_message(player->toPlayer, "yes\n");
+    send_message(player.toPlayer, "yes\n");
     free(buffer);
     return 1;
 }
@@ -658,14 +708,36 @@ GameProp *get_prop_by_port(Server *server, char *port) {
     return NULL;
 }
 
-void handle_connection(Server *server, GameProp *prop, int sock) {
-    pthread_mutex_t gamePropLock = PTHREAD_MUTEX_INITIALIZER;
+void combine_all_scores(Server *server) {
+
+}
+
+enum ConnectionType classifiy_connection(FILE *toConnection,
+        FILE *fromConnection) {
+    enum ConnectionType type;
+    char *buffer;
+    read_line(fromConnection, &buffer, 0);
+    if (strcmp(buffer, "scores") == 0) {
+        type = SCORES_CONNECT;
+    } else {
+        type = PLAYER_CONNECT;
+    }
+    free(buffer);
+    return type;
+}
+
+void handle_player_connect(Server *server, GameProp *prop, FILE *toConnection,
+        FILE *fromConnection, int sock, pthread_mutex_t gamePropLock) {
     struct GamePlayer player;
-    setup_player_fd(&player, sock);
-    if (!verify_player(prop->key, &player)) {
-        // free
+    player.fileDescriptor = sock;
+    player.toPlayer = toConnection;
+    player.fromPlayer = fromConnection;
+    if (!verify_player(prop->key, player)) {
+        fclose(player.toPlayer);
+        fclose(player.fromPlayer);
         return;
     }
+
     char *buffer;
     read_line(player.fromPlayer, &buffer, 0);
     if (strcmp(buffer, "reconnect") == 0) {
@@ -676,10 +748,10 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
     char *port;
     int diffPort = 0;
     int index = get_avaliable_game_all(server, buffer, &port);
-    if (index == -1) {
+    if (index == -1) { // Game does not exist, create it.
         create_new_game(prop, &player, buffer, &gamePropLock);
         index = prop->instanceSize - 1;
-    } else {
+    } else { // Game exists, add to existing game.
         free(buffer);
         if (strcmp(prop->port, port) != 0) {
             add_to_existing_game(get_prop_by_port(server, port), &player,
@@ -689,7 +761,7 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
             add_to_existing_game(prop, &player, index, &gamePropLock);
         }
     }
-    if (!diffPort) { // Game not on a different port.
+    if (!diffPort) { // Game not on a different port, play the game.
         if (prop->playerMax == prop->instances[index].playerCount) {
             play_game(server, prop, index, &gamePropLock);
         }
@@ -699,6 +771,23 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
             play_game(server, get_prop_by_port(server, port), index,
                     &gamePropLock);
         }
+    }
+}
+
+void handle_connection(Server *server, GameProp *prop, int sock) {
+    pthread_mutex_t gamePropLock = PTHREAD_MUTEX_INITIALIZER;
+    FILE *toConnection = fdopen(sock, "w");
+    FILE *fromConnection = fdopen(sock, "r");
+    enum ConnectionType type = classifiy_connection(toConnection,
+            fromConnection);
+    switch(type) {
+        case(PLAYER_CONNECT):
+            handle_player_connect(server, prop, toConnection, fromConnection,
+                    sock, gamePropLock);
+
+            break;
+        case(SCORES_CONNECT):
+            break;
     }
 }
 
@@ -713,19 +802,10 @@ void *listen_thread(void *argv) {
     while(1) {
         int sock = accept(prop->socket, (struct sockaddr *) &in, &size);
         if (sock == -1) {
-            printf("fail here\n");
             exit_with_error(FAILED_LISTEN);
         }
+        printf("sock %i\n", sock);
         handle_connection(server, prop, sock);
-    }
-    for (int i = 0; i < prop->instanceSize; i++) {
-        pthread_join(prop->instanceThreads[i], NULL);
-        struct Game game = prop->instances[i];
-        printf("Game instance %i has %i players\n", i, game.playerCount);
-        for (int j = 0; j < game.playerCount; j++) {
-            struct GamePlayer p = game.players[j];
-            printf("- %s : %i\n", p.state.name, p.state.playerId);
-        }
     }
     return NULL;
 }
@@ -740,6 +820,7 @@ void start_server(Server *server) {
         argList[i] = args;
         pthread_create(&server->gameProps[i].mainThread, NULL, listen_thread,
                 (void *) &argList[i]);
+        printf("create %i\n", (int) server->gameProps[i].mainThread);
     }
     for (int i = 0; i < server->portAmount; i++) {
         pthread_join(server->gameProps[i].mainThread, NULL);
@@ -760,12 +841,13 @@ void signal_handler(int sig) {
             printf("SIGINT CAUGHT\n");
             for (int i = 0; i < sigServer->portAmount; i++) {
                 GameProp prop = sigServer->gameProps[i];
-                for (int j = 0; j < prop.instanceSize; j++) {
-                    pthread_cancel(prop.instanceThreads[j]);
-                    pthread_join(prop.instanceThreads[j], NULL);
-                }
-                pthread_cancel(prop.mainThread);
-                pthread_join(prop.mainThread, NULL);
+                // for (int j = 0; j < prop.instanceSize; j++) {
+                //     pthread_cancel(prop.instanceThreads[j]);
+                //     pthread_join(prop.instanceThreads[j], NULL);
+                // }
+                pthread_cancel(sigServer->gameProps[i].mainThread);
+                pthread_join(sigServer->gameProps[i].mainThread, NULL);
+                printf("close %i\n", (int) prop.mainThread);
             }
             free_server(sigServer);
             exit(0);
@@ -791,10 +873,7 @@ void setup_game_sockets(Server *server, StatFileProp prop, char *key,
     server->gameProps = malloc(sizeof(GameProp) * prop.amount);
     server->portAmount = prop.amount;
     for (int i = 0; i < prop.amount; i++) {
-        enum Error err = get_socket(&server->gameProps[i].socket, prop.stats[i].port);
-        if (err) {
-            exit_with_error(err);
-        }
+        server->gameProps[i].socket = get_socket("3000");
         server->gameProps[i].port = malloc(sizeof(char) *
                 (strlen(prop.stats[i].port) + 1));
         strcpy(server->gameProps[i].port, prop.stats[i].port);

@@ -81,7 +81,6 @@ enum Error get_socket(int *output, char *port) {
         sock = socket(res->ai_family, res->ai_socktype,
            res->ai_protocol);
         if (sock == -1) {
-            sock = -1;
             continue;
         }
 
@@ -89,6 +88,8 @@ enum Error get_socket(int *output, char *port) {
             close(sock);
             sock = -1;
             continue;
+        } else {
+            printf("connected on %i\n", sock);
         }
 
         break;  /* okay we got one */
@@ -165,13 +166,16 @@ enum Error get_game_info(Server *server) {
 }
 
 enum Error connect_server(Server *server, char *gamename, char *playername) {
+
     enum Error err = get_socket(&server->socket, server->port);
     if (err) {
         return err;
     }
     server->in = fdopen(server->socket, "w");
     server->out = fdopen(server->socket, "r");
+
     send_message(server->in, "%s\n", server->key);
+    printf("sending key %s\n", server->key);
     char *buffer;
     read_line(server->out, &buffer, 0);
     if (strcmp(buffer, "yes") != 0) {
@@ -359,6 +363,7 @@ int main(int argc, char **argv) {
     if (err) {
         exit_with_error(err, ' ');
     }
+    printf("server key %s\n", server.key);
     err = connect_server(&server, argv[GAME_NAME], argv[PLAYER_NAME]);
     if (err) {
         exit_with_error(err, ' ');

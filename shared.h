@@ -60,7 +60,7 @@ int is_string_digit(char *);
 char **split(char *, char *);
 int check_encoded(char **, int);
 int match_seperators(char *, const int, const int);
-enum Error get_socket(int *, char *);
+// enum Error get_socket(int *, char *);
 
 #endif
 
