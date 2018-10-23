@@ -244,7 +244,7 @@ StatFileProp load_statfile(char *path) {
         char **splitContent = split(content, "\n");
         prop.stats = malloc(sizeof(Stat) * (lines + 1));
         prop.amount = 0;
-        for (int i = 0; i < lines + 1; i++) {
+        for (int i = 0; i < lines; i++) {
             if (check_stat_line(splitContent[i])) {
                 Stat stat = generate_stat(splitContent[i]);
                 if (index_of_non_zero_port(prop, stat.port) != -1) {
