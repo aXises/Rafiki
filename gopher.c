@@ -39,6 +39,7 @@ enum Error get_socket(int *output, char *port) {
     hints.ai_socktype = SOCK_STREAM;
     int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
     if (error) {
+        freeaddrinfo(res0);
         return CONNECT_ERR;
     }
     sock = -1;
@@ -59,6 +60,7 @@ enum Error get_socket(int *output, char *port) {
         break;  /* okay we got one */
     }
     if (sock == -1) {
+        freeaddrinfo(res0);
         return CONNECT_ERR;
     }
     *output = sock;
@@ -77,6 +79,11 @@ int main(int argc, char **argv) {
     FILE *fromServer = fdopen(sock, "r");
     send_message(toServer, "scores\n");
     char *buffer;
+    if (feof(fromServer)) {
+        fclose(toServer);
+        fclose(fromServer);
+        exit_with_error(INVALID_SERVER);
+    }
     read_line(fromServer, &buffer, 0);
     if (!(strcmp(buffer, "yes") == 0)) {
         free(buffer);

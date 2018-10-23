@@ -149,8 +149,11 @@ void exit_with_error(int error) {
 }
 
 void check_args(int argc, char **argv) {
-    if (argc != EXPECTED_ARGC || !is_string_digit(argv[TIMEOUT])) {
+    if (argc != EXPECTED_ARGC) {
         exit_with_error(INVALID_ARG_NUM);
+    }
+    if (!is_string_digit(argv[TIMEOUT])) {
+        exit_with_error(BAD_TIMEOUT);
     }
 }
 
@@ -905,6 +908,12 @@ int main(int argc, char **argv) {
     }
     load_deckfile(&server, argv[DECKFILE]);
     StatFileProp prop = load_statfile(argv[STATFILE]);
+    for (int i = 0; i < prop.amount; i++) {
+        if (i == (prop.amount - 1)) {
+            printf("%s\n", prop.stats[i].port);
+        }
+        printf("%s ", prop.stats[i].port);
+    }
     setup_game_sockets(&server, prop, key, atoi(argv[TIMEOUT]));
     start_server(&server);
     free_server(&server);
