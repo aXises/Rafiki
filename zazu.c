@@ -276,7 +276,7 @@ enum Error handle_messages(Server *server, enum MessageFromHub type,
     int id;
     switch (type) {
         case END_OF_GAME:
-            return NOTHING_WRONG;
+            err = NOTHING_WRONG;
         case DO_WHAT:
             printf("Received dowhat\n");
             make_move(server, &server->game);
@@ -298,6 +298,7 @@ enum Error handle_messages(Server *server, enum MessageFromHub type,
             if (err) {
                 err = COMM_ERR;
             } else {
+                free(line);
                 exit_with_error(PLAYER_DISCONNECTED, id + 'A');
             }
         case INVALID:
@@ -305,10 +306,10 @@ enum Error handle_messages(Server *server, enum MessageFromHub type,
             if (err) {
                 err = COMM_ERR;
             } else {
+                free(line);
                 exit_with_error(INVALID_MESSAGE, id + 'A');
             }
         default:
-            free(line);
             err = COMM_ERR;
     }
     return err;
