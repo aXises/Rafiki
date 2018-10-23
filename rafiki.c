@@ -917,8 +917,9 @@ int main(int argc, char **argv) {
     for (int i = 0; i < prop.amount; i++) {
         if (i == (prop.amount - 1)) {
             fprintf(stderr, "%s\n", server.gameProps[i].port);
+        } else {
+            fprintf(stderr, "%s ", server.gameProps[i].port);
         }
-        fprintf(stderr, "%s ", server.gameProps[i].port);
     }
     start_server(&server);
     free_server(&server);

@@ -68,7 +68,6 @@ void load_statfile(char *path) {
 enum Error get_socket(int *output, char *port) {
     struct addrinfo hints, *res, *res0;
     int sock;
-    const char *cause = NULL;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -96,7 +95,6 @@ enum Error get_socket(int *output, char *port) {
     if (sock == -1) {
         return CONNECT_ERR;
     }
-    printf("cause: %s, socket: %i\n", cause, sock);
     *output = sock;
     freeaddrinfo(res0);
     return NOTHING_WRONG;
@@ -104,7 +102,6 @@ enum Error get_socket(int *output, char *port) {
 
 void listen_server(FILE *out, char **output) {
     read_line(out, output, 0);
-    printf("out : %s\n", *output);
     if (*output == NULL) {
         return;
     }
