@@ -36,7 +36,7 @@ enum Error get_socket(int *output, char *port) {
     int sock;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
     int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
     if (error) {
         freeaddrinfo(res0);
