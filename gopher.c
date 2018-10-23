@@ -1,13 +1,9 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <game.h>
+#include "shared.h"
 
 #define EXPECTED_ARGC 2
 
-enum Error {
-    INVALID_ARG_NUM = 1,
-    CONNECT_ERR = 3,
-    INVALID_SERVER = 4,
+enum Argument {
+    PORT = 1
 };
 
 typedef struct {
@@ -35,6 +31,69 @@ void check_args(int argc, char **argv) {
     }
 }
 
+enum Error get_socket(int *output, char *port) {
+    struct addrinfo hints, *res, *res0;
+    int sock;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
+    if (error) {
+        return CONNECT_ERR;
+    }
+    sock = -1;
+    for (res = res0; res != NULL; res = res->ai_next) {
+        sock = socket(res->ai_family, res->ai_socktype,
+           res->ai_protocol);
+        if (sock == -1) {
+            sock = -1;
+            continue;
+        }
+
+        if (connect(sock, res->ai_addr, res->ai_addrlen) == -1) {
+            close(sock);
+            sock = -1;
+            continue;
+        }
+
+        break;  /* okay we got one */
+    }
+    if (sock == -1) {
+        return CONNECT_ERR;
+    }
+    *output = sock;
+    freeaddrinfo(res0);
+    return NOTHING_WRONG;
+}
+
 int main(int argc, char **argv) {
     check_args(argc, argv);
+    int sock;
+    enum Error error = get_socket(&sock, argv[PORT]);
+    if (error) {
+        exit_with_error(CONNECT_ERR);
+    }
+    FILE *toServer = fdopen(sock, "w");
+    FILE *fromServer = fdopen(sock, "r");
+    send_message(toServer, "scores\n");
+    char *buffer;
+    read_line(fromServer, &buffer, 0);
+    if (!(strcmp(buffer, "yes") == 0)) {
+        free(buffer);
+        fclose(toServer);
+        fclose(fromServer);
+        exit_with_error(INVALID_SERVER);
+    };
+    free(buffer);
+    char *scores;
+    while (1) {
+        read_line(fromServer, &scores, 0);
+        if (feof(fromServer)) {
+            break;
+        }
+        printf("%s\n", scores);
+        free(scores);
+    }
+    fclose(toServer);
+    fclose(fromServer);
 }

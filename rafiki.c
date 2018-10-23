@@ -90,7 +90,6 @@ Server *sigServer;
 void free_server(Server *server) {
     for (int i = 0; i < server->portAmount; i++) {
         GameProp prop = server->gameProps[i];
-        printf("** %i\n", prop.instanceSize);
         for (int j = 0; j < prop.instanceSize; j++) {
             struct Game instance = prop.instances[j];
             for (int k = 0; k < instance.playerCount; k++) {
@@ -111,6 +110,7 @@ void free_server(Server *server) {
         free(prop.instanceThreads);
         free(prop.port);
         free(prop.key);
+        free(prop.scoresTable.entries);
     }
     if (server->portAmount > 0) {
         free(server->gameProps);
@@ -391,9 +391,7 @@ enum ErrorCode do_what(GameProp *prop, struct Game *game, int playerId) {
         }
     }
     enum MessageFromPlayer type = classify_from_player(line);
-    printf("parsing %s\n", line);
     if (update_scores(prop, game, type, line, playerId) != NOTHING_WRONG) {
-        printf("fail here\n");
         free(line);
         return PROTOCOL_ERROR;
     };
@@ -434,7 +432,7 @@ void *game_instance_thread(void *arg) {
     // Start playing game
     GameProp *prop = (GameProp *) arg;
     struct Game *game = &prop->instances[prop->currentGameIndex];
-    printf("Game started!\n");
+    //printf("Game started!\n");
     for (int i = 0; i < BOARD_SIZE; ++i) {
         draw_card(game);
     }
@@ -442,10 +440,6 @@ void *game_instance_thread(void *arg) {
     while(!is_game_over(game)) {
         for (int i = 0; i < game->playerCount; i++) {
             err = do_what(prop, game, i);
-                for (int i = 0; i < prop->scoresTable.entryCount; i++) {
-                    ScoreEntry s = prop->scoresTable.entries[i];
-                    printf("%s %i %i\n", s.playerName, s.tokensTaken, s.pointsEarned);
-                }
             if (err == PROTOCOL_ERROR) {
                 err = do_what(prop, game, i);
             }
@@ -475,7 +469,7 @@ void setup_player_fd(struct GamePlayer *player, int sock) {
 
 void add_player(struct Game *game, struct GamePlayer *player,
         pthread_mutex_t *mutex) {
-    printf("ADDING PLAYER %s TO GAME %s\n", player->state.name, game->name);
+    //printf("ADDING PLAYER %s TO GAME %s\n", player->state.name, game->name);
     int size = game->playerCount;
     pthread_mutex_lock(mutex);
     game->players = realloc(game->players, sizeof(struct GamePlayer)
@@ -585,8 +579,6 @@ void send_game_initial_messages(Server *server, GameProp *prop,
 }
 
 void setup_scores_table(GameProp *prop, struct Game *instance) {
-    prop->scoresTable.entryCount = 0;
-    prop->scoresTable.entries = malloc(0);
     for (int i = 0; i < instance->playerCount; i++) {
         ScoreEntry entry;
         entry.playerName = instance->players[i].state.name;
@@ -619,7 +611,7 @@ void play_game(Server *server, GameProp *prop, int index,
 
 void create_new_game(GameProp *prop, struct GamePlayer *player,
         char *name, pthread_mutex_t *mutex) {
-    printf("SETTING UP NEW GAME\n");
+    //printf("SETTING UP NEW GAME\n");
     struct Game instance = setup_instance(name, prop->startToken,
             prop->winPoints);
     setup_player(player, instance.playerCount);
@@ -666,8 +658,44 @@ GameProp *get_prop_by_port(Server *server, char *port) {
     return NULL;
 }
 
-void combine_all_scores(Server *server) {
+int index_of_player_in_table(ScoreTable table, char *playerName) {
+    int index = -1;
+    for (int i = 0; i < table.entryCount; i++) {
+        if (strcmp(table.entries[i].playerName, playerName) == 0) {
+            index = i;
+            break;
+        }
+    }
+    return index;
+}
 
+void combine_all_scores_and_send(Server *server, FILE *toConnection) {
+    ScoreTable table;
+    table.entryCount = 0;
+    table.entries = malloc(0);
+    for (int i = 0; i < server->portAmount; i++) {
+        for (int j = 0; j < server->gameProps[i].scoresTable.entryCount;
+                j++) {
+            ScoreEntry entry = server->gameProps[i].scoresTable.entries[j];
+            int index = index_of_player_in_table(table, entry.playerName);
+            if (index == -1) {
+                table.entries = realloc(table.entries, sizeof(ScoreEntry) *
+                        (table.entryCount + 1));
+                table.entries[table.entryCount] = entry;
+                table.entryCount++;
+            } else {
+                table.entries[index].tokensTaken += entry.tokensTaken;
+                table.entries[index].pointsEarned += entry.pointsEarned;
+            }
+        }
+    }
+    send_message(toConnection, "Player Name,Total Tokens,Total Points\n");
+    for (int i = 0; i < table.entryCount; i++) {
+        ScoreEntry s = table.entries[i];
+        send_message(toConnection, "%s,%i,%i\n", s.playerName,
+                s.tokensTaken, s.pointsEarned);
+    }
+    free(table.entries);
 }
 
 enum ConnectionType verifiy_connection(GameProp *prop, FILE *toConnection,
@@ -676,6 +704,7 @@ enum ConnectionType verifiy_connection(GameProp *prop, FILE *toConnection,
     char *buffer;
     read_line(fromConnection, &buffer, 0);
     if (strcmp(buffer, "scores") == 0) {
+        send_message(toConnection, "yes\n");
         type = SCORES_CONNECT;
     } else if (!strcmp(prop->key, buffer) == 0) {
         send_message(toConnection, "no\n");
@@ -744,6 +773,9 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
                     sock, gamePropLock);
             break;
         case(SCORES_CONNECT):
+            combine_all_scores_and_send(server, toConnection);
+            fclose(toConnection);
+            fclose(fromConnection);
             break;
         case(PLAYER_CONNECT_INVALID):
             break;
@@ -754,26 +786,16 @@ void *listen_thread(void *argv) {
     ServerGameArgs *args = (ServerGameArgs *) argv;
     Server *server = args->server;
     GameProp *prop = args->prop;
-    printf("%s %i\n", prop->port, prop->socket);
-    printf("LISTENER THREAD %i STARTED\n", (int) pthread_self());
+    //printf("%s %i\n", prop->port, prop->socket);
+    //printf("LISTENER THREAD %i STARTED\n", (int) pthread_self());
     struct sockaddr_in in;
     socklen_t size = sizeof(in);
     while(1) {
         int sock = accept(prop->socket, (struct sockaddr *) &in, &size);
         if (sock == -1) {
-            printf("fail here\n");
             exit_with_error(FAILED_LISTEN);
         }
         handle_connection(server, prop, sock);
-    }
-    for (int i = 0; i < prop->instanceSize; i++) {
-        pthread_join(prop->instanceThreads[i], NULL);
-        struct Game game = prop->instances[i];
-        printf("Game instance %i has %i players\n", i, game.playerCount);
-        for (int j = 0; j < game.playerCount; j++) {
-            struct GamePlayer p = game.players[j];
-            printf("- %s : %i\n", p.state.name, p.state.playerId);
-        }
     }
     return NULL;
 }
@@ -860,6 +882,8 @@ void setup_game_sockets(Server *server, StatFileProp prop, char *key,
         server->gameProps[i].winPoints = prop.stats[i].points;
         server->gameProps[i].timeout = timeout;
         server->gameProps[i].currentGameIndex = -1;
+        server->gameProps[i].scoresTable.entryCount = 0;
+        server->gameProps[i].scoresTable.entries = malloc(0);
     }
     for (int i = 0; i < prop.amount; i++) {
         free(prop.stats[i].port);
