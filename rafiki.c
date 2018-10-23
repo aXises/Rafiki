@@ -916,9 +916,9 @@ int main(int argc, char **argv) {
     setup_game_sockets(&server, prop, key, atoi(argv[TIMEOUT]));
     for (int i = 0; i < prop.amount; i++) {
         if (i == (prop.amount - 1)) {
-            printf("%s\n", server.gameProps[i].port);
+            fprintf(stderr, "%s\n", server.gameProps[i].port);
         }
-        printf("%s ", server.gameProps[i].port);
+        fprintf(stderr, "%s ", server.gameProps[i].port);
     }
     start_server(&server);
     free_server(&server);
