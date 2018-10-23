@@ -279,8 +279,6 @@ enum Error handle_messages(Server *server, enum MessageFromHub type,
     int id;
     switch (type) {
         case END_OF_GAME:
-            free(line);
-            // display_eog_info(server->game);
             return NOTHING_WRONG;
         case DO_WHAT:
             printf("Received dowhat\n");
@@ -327,8 +325,9 @@ enum Error play_game(Server *server) {
     while (1) {
         char* line;
         int readBytes = read_line(server->out, &line, 0);
-        printf("recieved from server: %s\n", line);
+        // printf("recieved from server: %s\n", line);
         if (readBytes <= 0) {
+            free(line);
             return COMM_ERR;
         }
         enum MessageFromHub type = classify_from_hub(line);
