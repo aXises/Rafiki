@@ -164,7 +164,7 @@ void load_deckfile(Server *server, char *path) {
         case (VALID):
             break;
         case (DECK_ACCESS):
-            exit_with_error(SYSTEM_ERR);
+            exit_with_error(INVALID_DECKFILE);
         case (DECK_INVALID):
             exit_with_error(INVALID_DECKFILE);
     };
@@ -823,7 +823,6 @@ void start_server(Server *server) {
 void setup_server(Server *server) {
     server->timeout = 0;
     server->portAmount = 0;
-    server->key = "12345";
     server->deckSize = 0;
 }
 
@@ -846,7 +845,7 @@ void signal_handler(int sig) {
             exit(0);
             break;
         case(SIGTERM):
-            printf("SIGTERM CAUGHT\n");
+            // printf("SIGTERM CAUGHT\n");
             exit(0);
             break;
     }
@@ -866,14 +865,20 @@ void setup_game_sockets(Server *server, StatFileProp prop, char *key,
     server->gameProps = malloc(sizeof(GameProp) * prop.amount);
     server->portAmount = prop.amount;
     for (int i = 0; i < prop.amount; i++) {
-        enum Error err = get_socket(&server->gameProps[i].socket, prop.stats[i].port);
+        enum Error err = get_socket(&server->gameProps[i].socket,
+                prop.stats[i].port);
         if (err) {
             exit_with_error(err);
         }
+        struct sockaddr_in in;
+        socklen_t len = sizeof(in);
+        getsockname(server->gameProps[i].socket, (struct sockaddr *) &in, &len);
+        char buffer[6];
+        sprintf(buffer, "%i", ntohs(in.sin_port));
         server->gameProps[i].port = malloc(sizeof(char) *
-                (strlen(prop.stats[i].port) + 1));
-        strcpy(server->gameProps[i].port, prop.stats[i].port);
-        server->gameProps[i].port[strlen(prop.stats[i].port)] = '\0';
+                (strlen(buffer) + 1));
+        strcpy(server->gameProps[i].port, buffer);
+        server->gameProps[i].port[strlen(buffer)] = '\0';
         server->gameProps[i].key = malloc(sizeof(char) * (strlen(key) + 1));
         strcpy(server->gameProps[i].key, key);
         server->gameProps[i].key[strlen(key)] = '\0';
@@ -908,13 +913,13 @@ int main(int argc, char **argv) {
     }
     load_deckfile(&server, argv[DECKFILE]);
     StatFileProp prop = load_statfile(argv[STATFILE]);
+    setup_game_sockets(&server, prop, key, atoi(argv[TIMEOUT]));
     for (int i = 0; i < prop.amount; i++) {
         if (i == (prop.amount - 1)) {
-            printf("%s\n", prop.stats[i].port);
+            printf("%s\n", server.gameProps[i].port);
         }
-        printf("%s ", prop.stats[i].port);
+        printf("%s ", server.gameProps[i].port);
     }
-    setup_game_sockets(&server, prop, key, atoi(argv[TIMEOUT]));
     start_server(&server);
     free_server(&server);
 }
