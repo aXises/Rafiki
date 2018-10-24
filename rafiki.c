@@ -574,8 +574,8 @@ void send_game_initial_messages(Server *server, GameProp *prop,
     for (int i = 0; i < game.playerCount; i++) {
         send_message(game.players[i].toPlayer, "rid%s,%i,%i\n", game.name,
                 gameCounter, game.players[i].state.playerId);
-        send_message(game.players[i].toPlayer, "playinfo%i/%i\n",
-                game.players[i].state.playerId, game.playerCount);
+        send_message(game.players[i].toPlayer, "playinfo%c/%i\n",
+                game.players[i].state.playerId + 'A', game.playerCount);
         send_message(game.players[i].toPlayer, "tokens%i\n",
                 prop->startToken);
     }
