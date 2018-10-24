@@ -171,9 +171,11 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
     char *buffer;
     read_line(server->out, &buffer, 0);
     if (strcmp(buffer, "yes") != 0) {
+        printf("%s\n", buffer);
         free(buffer);
         return BAD_AUTH;
     }
+    printf("%s\n", buffer);
     send_message(server->in, "%s\n", gamename);
     send_message(server->in, "%s\n", playername);
     server->gameName = gamename;
