@@ -170,7 +170,7 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
     read_line(server->out, &buffer, 0);
     if (strcmp(buffer, "yes") != 0) {
         free(buffer);
-        return CONNECT_ERR;
+        return BAD_AUTH;
     }
     send_message(server->in, "%s\n", gamename);
     send_message(server->in, "%s\n", playername);
