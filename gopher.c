@@ -95,7 +95,7 @@ int main(int argc, char **argv) {
         free(buffer);
         fclose(toServer);
         fclose(fromServer);
-        exit_with_error(NORMAL_EXIT);
+        exit_with_error(INVALID_SERVER);
     }
     if (!(strcmp(buffer, "yes") == 0)) {
         free(buffer);
