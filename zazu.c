@@ -61,10 +61,6 @@ void check_args(int argc, char **argv) {
     }
 }
 
-void load_statfile(char *path) {
-
-}
-
 enum Error get_socket(int *output, char *port) {
     struct addrinfo hints, *res, *res0;
     int sock;
@@ -123,6 +119,7 @@ enum Error get_game_info(Server *server) {
         server->rid = malloc(sizeof(char) * (strlen(splitString[RIGHT]) + 1));
         strcpy(server->rid, splitString[RIGHT]);
         server->rid[strlen(splitString[RIGHT])] = '\0';
+        fprintf(stdout, "%s\n", server->rid);
         free(splitString);
         free(buffer);
     } else {
@@ -168,7 +165,7 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
     }
     server->in = fdopen(server->socket, "w");
     server->out = fdopen(server->socket, "r");
-    send_message(server->in, "%s\n", server->key);
+    send_message(server->in, "play%s\n", server->key);
     char *buffer;
     read_line(server->out, &buffer, 0);
     if (strcmp(buffer, "yes") != 0) {
@@ -276,7 +273,8 @@ enum Error handle_messages(Server *server, enum MessageFromHub type,
     int id;
     switch (type) {
         case END_OF_GAME:
-            err = NOTHING_WRONG;
+            display_eog_info(&server->game);
+            exit_with_error(err, ' ');
         case DO_WHAT:
             printf("Received dowhat\n");
             make_move(server, &server->game);

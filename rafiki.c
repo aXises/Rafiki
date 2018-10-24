@@ -709,14 +709,16 @@ enum ConnectionType verifiy_connection(GameProp *prop, FILE *toConnection,
     if (strcmp(buffer, "scores") == 0) {
         send_message(toConnection, "yes\n");
         type = SCORES_CONNECT;
-    } else if (!strcmp(prop->key, buffer) == 0) {
-        send_message(toConnection, "no\n");
-        fclose(toConnection);
-        fclose(fromConnection);
-        type = PLAYER_CONNECT_INVALID;
-    } else {
-        send_message(toConnection, "yes\n");
-        type = PLAYER_CONNECT;
+    } else if (strstr(buffer, "play") != NULL) {
+        char **encoded = split(buffer, "y");
+        if (strcmp(prop->key, encoded[RIGHT]) != 0) {
+            send_message(toConnection, "no\n");
+            type = PLAYER_CONNECT_INVALID;
+        } else {
+            send_message(toConnection, "yes\n");
+            type = PLAYER_CONNECT;
+        }
+        free(encoded);
     }
     free(buffer);
     return type;
@@ -781,6 +783,8 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
             fclose(fromConnection);
             break;
         case(PLAYER_CONNECT_INVALID):
+            fclose(toConnection);
+            fclose(fromConnection);
             break;
     }
 }
