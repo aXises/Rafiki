@@ -31,6 +31,11 @@ enum Error load_keyfile(char **output, char *path) {
     return NOTHING_WRONG;
 }
 
+/**
+ * Send a formatted string to a file descriptor.
+ * @param in - The fd to write to.
+ * @param message - The message to send.
+ */
 void send_message(FILE *in, char *message, ...) {
     va_list args;
     va_start(args, message);
