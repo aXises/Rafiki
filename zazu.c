@@ -115,11 +115,11 @@ enum Error get_game_info(Server *server) {
     }
     if (strstr(buffer, "rid") != NULL) {
         // verifiy rid here.
-        printf("%s\n", buffer);
         char **splitString = split(buffer, "d");
         server->rid = malloc(sizeof(char) * (strlen(splitString[RIGHT]) + 1));
         strcpy(server->rid, splitString[RIGHT]);
         server->rid[strlen(splitString[RIGHT])] = '\0';
+        printf("%s\n", server->rid);
         free(splitString);
         free(buffer);
     } else {
@@ -129,7 +129,6 @@ enum Error get_game_info(Server *server) {
     listen_server(server->out, &buffer);
     if (strstr(buffer, "playinfo") != NULL) {
         // verifiy playinfo here.
-        printf("%s\n", buffer);
         char **splitString = split(buffer, "o");
         char **playInfo = split(splitString[RIGHT], "/");
         server->game.selfId = atoi(playInfo[LEFT]);
@@ -143,7 +142,6 @@ enum Error get_game_info(Server *server) {
     }
     listen_server(server->out, &buffer);
     if (strstr(buffer, "tokens") != NULL) {
-        printf("%s\n", buffer);
         int output;
         parse_tokens_message(&output, buffer);
         if (output == -1) {
@@ -171,11 +169,9 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
     char *buffer;
     read_line(server->out, &buffer, 0);
     if (strcmp(buffer, "yes") != 0) {
-        printf("%s\n", buffer);
         free(buffer);
         return BAD_AUTH;
     }
-    printf("%s\n", buffer);
     send_message(server->in, "%s\n", gamename);
     send_message(server->in, "%s\n", playername);
     server->gameName = gamename;
@@ -280,23 +276,19 @@ enum Error handle_messages(Server *server, enum MessageFromHub type,
             display_eog_info(&server->game);
             exit_with_error(err, ' ');
         case DO_WHAT:
-            printf("dowhat\n");
+            printf("Recieved dowhat\n");
             make_move(server, &server->game);
             break;
         case PURCHASED:
-            printf("%s\n", line);
             err = handle_purchased_message(&server->game, line);
             break;
         case TOOK:
-            printf("%s\n", line);
             err = handle_took_message(&server->game, line);
             break;
         case TOOK_WILD:
-            printf("%s\n", line);
             err = handle_took_wild_message(&server->game, line);
             break;
         case NEW_CARD:
-            printf("%s\n", line);
             err = handle_new_card_message(&server->game, line);
             break;
         case DISCO:
@@ -325,6 +317,8 @@ enum Error handle_messages(Server *server, enum MessageFromHub type,
  * game, either with 0 or with the relevant exit code.
  */
 enum Error play_game(Server *server) {
+    display_turn_info(&server->game);
+    display_turn_info(&server->game);
     enum ErrorCode err = 0;
     while (1) {
         char* line;
@@ -340,7 +334,7 @@ enum Error play_game(Server *server) {
         if (err) {
             return err;
         } else if (type != DO_WHAT) {
-            // display_turn_info(&server->game);
+            display_turn_info(&server->game);
         }
     }
 }
