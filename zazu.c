@@ -202,13 +202,13 @@ void prompt_purchase(Server *server, struct GameState *state) {
         free(number);
     }
     for (int i = 0; i < TOKEN_MAX; i++) {
-        printf("selfID %i\n", state->selfId);
         if (state->players[state->selfId].tokens[i] == 0) {
             message.costSpent[i] = 0;
             continue;
         }
         int validToken = 0;
         while(!validToken) {
+            printf("Token-%c> ", print_token(i));
             char *tokenTaken;
             read_line(stdin, &tokenTaken, 0);
             if (is_string_digit(tokenTaken) && atoi(tokenTaken) >= 0 &&
