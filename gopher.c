@@ -15,7 +15,7 @@ void exit_with_error(int error) {
         case INVALID_ARG_NUM:
             fprintf(stderr, "Usage: gopher port\n");
             break;
-        case CONNECT_ERR:
+        case CONNECT_ERR_SCORE:
             fprintf(stderr, "Failed to connect\n");
             break;
         case INVALID_SERVER:
@@ -30,10 +30,10 @@ void check_args(int argc, char **argv) {
         exit_with_error(INVALID_ARG_NUM);
     }
     if (!is_string_digit(argv[PORT])) {
-        exit_with_error(CONNECT_ERR);
+        exit_with_error(CONNECT_ERR_SCORE);
     }
     if (atoi(argv[PORT]) < 0 || atoi(argv[PORT]) > 65535) {
-        exit_with_error(CONNECT_ERR);
+        exit_with_error(CONNECT_ERR_SCORE);
     }
 }
 
@@ -46,7 +46,7 @@ enum Error get_socket(int *output, char *port) {
     int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
     if (error) {
         freeaddrinfo(res0);
-        return CONNECT_ERR;
+        return CONNECT_ERR_SCORE;
     }
     sock = -1;
     for (res = res0; res != NULL; res = res->ai_next) {
@@ -67,7 +67,7 @@ enum Error get_socket(int *output, char *port) {
     }
     if (sock == -1) {
         freeaddrinfo(res0);
-        return CONNECT_ERR;
+        return CONNECT_ERR_SCORE;
     }
     *output = sock;
     freeaddrinfo(res0);
@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
     int sock;
     enum Error error = get_socket(&sock, argv[PORT]);
     if (error) {
-        exit_with_error(CONNECT_ERR);
+        exit_with_error(CONNECT_ERR_SCORE);
     }
     FILE *toServer = fdopen(sock, "w");
     FILE *fromServer = fdopen(sock, "r");

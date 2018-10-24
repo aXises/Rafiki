@@ -33,7 +33,7 @@ void exit_with_error(int error, char playerLetter) {
         case BAD_NAME:
             fprintf(stderr, "Bad name\n");
             break;
-        case CONNECT_ERR:
+        case CONNECT_ERR_PLAYER:
             fprintf(stderr, "Failed to connect\n");
             break;
         case BAD_AUTH:
@@ -64,10 +64,10 @@ void check_args(int argc, char **argv) {
         exit_with_error(INVALID_ARG_NUM, ' ');
     }
     if (!is_string_digit(argv[PORT])) {
-        exit_with_error(CONNECT_ERR, ' ');
+        exit_with_error(CONNECT_ERR_PLAYER, ' ');
     }
     if (atoi(argv[PORT]) < 0 || atoi(argv[PORT]) > 65535) {
-        exit_with_error(CONNECT_ERR, ' ');
+        exit_with_error(CONNECT_ERR_PLAYER, ' ');
     }
     for (int i = 0; i < strlen(argv[GAME_NAME]); i++) {
         if (is_newline_or_comma(argv[GAME_NAME][i])) {
@@ -90,7 +90,7 @@ enum Error get_socket(int *output, char *port) {
     int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
     if (error) {
         freeaddrinfo(res0);
-        return CONNECT_ERR;
+        return CONNECT_ERR_PLAYER;
     }
     sock = -1;
     for (res = res0; res != NULL; res = res->ai_next) {
@@ -111,7 +111,7 @@ enum Error get_socket(int *output, char *port) {
     }
     if (sock == -1) {
         freeaddrinfo(res0);
-        return CONNECT_ERR;
+        return CONNECT_ERR_PLAYER;
     }
     *output = sock;
     freeaddrinfo(res0);
