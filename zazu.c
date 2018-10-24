@@ -217,6 +217,9 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
     return NOTHING_WRONG;
 }
 
+/**
+ * Frees memory allocated to the server.
+ */
 void free_server(Server server) {
     free(server.game.players);
     free(server.rid);

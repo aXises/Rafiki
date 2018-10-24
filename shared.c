@@ -1,5 +1,10 @@
 #include "shared.h"
 
+/**
+ * Loads a keyfile.
+ * @param path - The path of the keyfile.
+ * @param output - The key output.
+ */
 enum Error load_keyfile(char **output, char *path) {
     FILE *file = fopen(path, "r");
     if (file == NULL || !file) {
