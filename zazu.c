@@ -1,27 +1,11 @@
-#include <player.h>
-#include "shared.h"
+#include "zazu.h"
 
-#define EXPECTED_ARGC 5
-
-enum Argument {
-    KEYFILE = 1,
-    PORT = 2,
-    GAME_NAME = 3,
-    RECONNECT_ID = 3,
-    PLAYER_NAME = 4
-};
-
-typedef struct {
-    int socket;
-    char *rid;
-    char *port;
-    char *gameName;
-    char *key;
-    FILE *in;
-    FILE *out;
-    struct GameState game;
-} Server;
-
+/**
+ * Exits the program with a error.
+ * @param int - Error code.
+ * @param playerLetter - The player letter of the player which disconnected
+ * or sent an invalid message.
+ */
 void exit_with_error(int error, char playerLetter) {
     switch(error) {
         case INVALID_ARG_NUM:
@@ -55,10 +39,20 @@ void exit_with_error(int error, char playerLetter) {
     exit(error);
 }
 
+/**
+ * Check if a character is an newline character or a comma character.
+ * @param character - The character to check.
+ * @return - returns 1 if the char it is an newline or comma.
+ */
 int is_newline_or_comma(char character) {
     return character == '\n' || character == ',';
 }
 
+/**
+ * Checks initial arguments for zazu.
+ * @param argc - Argument count.
+ * @param argv - Argument vector.
+ */
 void check_args(int argc, char **argv) {
     if (argc != EXPECTED_ARGC) {
         exit_with_error(INVALID_ARG_NUM, ' ');
@@ -81,6 +75,11 @@ void check_args(int argc, char **argv) {
     }
 }
 
+/**
+ * Generates a socket from a provided port.
+ * @param output - The output socket.
+ * @param port - Port value to generate the socket from.
+ */
 enum Error get_socket(int *output, char *port) {
     struct addrinfo hints, *res, *res0;
     int sock;
@@ -95,7 +94,7 @@ enum Error get_socket(int *output, char *port) {
     sock = -1;
     for (res = res0; res != NULL; res = res->ai_next) {
         sock = socket(res->ai_family, res->ai_socktype,
-           res->ai_protocol);
+                res->ai_protocol);
         if (sock == -1) {
             sock = -1;
             continue;
@@ -118,6 +117,11 @@ enum Error get_socket(int *output, char *port) {
     return NOTHING_WRONG;
 }
 
+/**
+ * Listens on the server for any bytes.
+ * @param out - The file descriptor to listen on.
+ * @param output - The stream of data received.
+ */
 void listen_server(FILE *out, char **output) {
     read_line(out, output, 0);
     if (*output == NULL) {
@@ -128,6 +132,10 @@ void listen_server(FILE *out, char **output) {
     }
 }
 
+/**
+ * Gets the initial game information to setup a game state.
+ * @param server - The server instance.
+ */
 enum Error get_game_info(Server *server) {
     char *buffer;
     listen_server(server->out, &buffer);
@@ -180,6 +188,14 @@ enum Error get_game_info(Server *server) {
     return NOTHING_WRONG;
 }
 
+/**
+ * Sets up server sockets and fd's and sends the required messages
+ * to setup a game.
+ * @param server - The server instance.
+ * @param gamename - The game to connect to.
+ * @param playername - The name of the current player.
+ * @return Error based on the server's response.
+ */
 enum Error connect_server(Server *server, char *gamename, char *playername) {
     enum Error err = get_socket(&server->socket, server->port);
     if (err) {
@@ -209,6 +225,11 @@ void free_server(Server server) {
     fclose(server.out);
 }
 
+/**
+ * Prompts the user for arguments to the purchase message.
+ * @param server - The server instance.
+ * @param state - The current game state.
+ */
 void prompt_purchase(Server *server, struct GameState *state) {
     int validCardNumber = 0;
     struct PurchaseMessage message;
@@ -247,6 +268,11 @@ void prompt_purchase(Server *server, struct GameState *state) {
     free(purchaseMessage);
 }
 
+/**
+ * Prompts the user for arguments to the take message.
+ * @param server - The server instance.
+ * @param state - The current game state.
+ */
 void prompt_take(Server *server, struct GameState *state) {
     struct TakeMessage message;
     for (int i = 0; i < TOKEN_MAX - 1; i++) {
@@ -269,6 +295,11 @@ void prompt_take(Server *server, struct GameState *state) {
     free(takeMessage);
 }
 
+/**
+ * Prompt the user to make a move.
+ * @param server - The server instance.
+ * @param state - The current game state.
+ */
 void make_move(Server *server, struct GameState *state) {
     int validInput = 0;
     while(!validInput) {
@@ -289,6 +320,13 @@ void make_move(Server *server, struct GameState *state) {
     }
 }
 
+/**
+ * Handles messages received from the server.
+ * @param server - The server instance.
+ * @param type - The type of message received.
+ * @param line - The message received.
+ * @return error depending on whether if the message was valid.
+ */
 enum Error handle_messages(Server *server, enum MessageFromHub type,
         char *line) {
     enum ErrorCode err = 0;
@@ -337,13 +375,14 @@ enum Error handle_messages(Server *server, enum MessageFromHub type,
 
 /* Play the game, starting at the first round. Will return at the end of the
  * game, either with 0 or with the relevant exit code.
+ * @param server - The server instance.
  */
 enum Error play_game(Server *server) {
     display_turn_info(&server->game);
     display_turn_info(&server->game);
     enum ErrorCode err = 0;
     while (1) {
-        char* line;
+        char *line;
         int readBytes = read_line(server->out, &line, 0);
         // printf("recieved from server: %s\n", line);
         if (readBytes <= 0) {
@@ -361,6 +400,11 @@ enum Error play_game(Server *server) {
     }
 }
 
+/**
+ * Sets up initial players.
+ * @param server - The server instance.
+ * @param amount - The amount of players.
+ */
 void setup_players(Server *server, int amount) {
     server->game.players = malloc(sizeof(struct GamePlayer) * amount);
     for (int i = 0; i < amount; i++) {
@@ -368,13 +412,16 @@ void setup_players(Server *server, int amount) {
     }
 }
 
+/**
+ * Main
+ */
 int main(int argc, char **argv) {
     check_args(argc, argv);
     Server server;
     server.port = argv[PORT];
     server.game.boardSize = 0;
     enum Error err;
-    err = load_keyfile(&server.key,  argv[KEYFILE]);
+    err = load_keyfile(&server.key, argv[KEYFILE]);
     if (err) {
         exit_with_error(err, ' ');
     }

@@ -1,15 +1,9 @@
-#include "shared.h"
+#include "gopher.h"
 
-#define EXPECTED_ARGC 2
-
-enum Argument {
-    PORT = 1
-};
-
-typedef struct {
-    int timeout;
-} Server;
-
+/**
+ * Exits the program with a error.
+ * @param int - Error code.
+ */
 void exit_with_error(int error) {
     switch(error) {
         case INVALID_ARG_NUM:
@@ -25,6 +19,11 @@ void exit_with_error(int error) {
     exit(error);
 }
 
+/**
+ * Checks initial arguments for gopher.
+ * @param argc - Argument count.
+ * @param argv - Argument vector.
+ */
 void check_args(int argc, char **argv) {
     if (argc != EXPECTED_ARGC) {
         exit_with_error(INVALID_ARG_NUM);
@@ -37,6 +36,11 @@ void check_args(int argc, char **argv) {
     }
 }
 
+/**
+ * Generates a socket from a provided port.
+ * @param output - The output socket.
+ * @param port - Port value to generate the socket from.
+ */
 enum Error get_socket(int *output, char *port) {
     struct addrinfo hints, *res, *res0;
     int sock;
@@ -51,7 +55,7 @@ enum Error get_socket(int *output, char *port) {
     sock = -1;
     for (res = res0; res != NULL; res = res->ai_next) {
         sock = socket(res->ai_family, res->ai_socktype,
-           res->ai_protocol);
+                res->ai_protocol);
         if (sock == -1) {
             sock = -1;
             continue;
@@ -74,6 +78,9 @@ enum Error get_socket(int *output, char *port) {
     return NOTHING_WRONG;
 }
 
+/**
+ * Main
+ */
 int main(int argc, char **argv) {
     check_args(argc, argv);
     int sock;
@@ -85,27 +92,27 @@ int main(int argc, char **argv) {
     FILE *fromServer = fdopen(sock, "r");
     send_message(toServer, "scores\n");
     char *buffer;
-    if (feof(fromServer)) {
+    if (feof(fromServer)) { // Server closed.
         fclose(toServer);
         fclose(fromServer);
         exit_with_error(INVALID_SERVER);
     }
     int bytesRead = read_line(fromServer, &buffer, 0);
-    if (bytesRead == 0) {
+    if (bytesRead == 0) { // No bytes read.
         free(buffer);
         fclose(toServer);
         fclose(fromServer);
         exit_with_error(INVALID_SERVER);
     }
-    if (!(strcmp(buffer, "yes") == 0)) {
+    if (!(strcmp(buffer, "yes") == 0)) { // Server did not respond with yes.
         free(buffer);
         fclose(toServer);
         fclose(fromServer);
         exit_with_error(INVALID_SERVER);
-    };
+    }
     free(buffer);
     char *scores;
-    while (1) {
+    while (1) { // Read stream and print to stdout.
         read_line(fromServer, &scores, 0);
         if (feof(fromServer)) {
             break;
