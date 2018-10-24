@@ -28,7 +28,10 @@ void exit_with_error(int error, char playerLetter) {
             fprintf(stderr, "Usage: zazu keyfile port game pname\n");
             break;
         case INVALID_KEYFILE:
-            fprintf(stderr, "Bad keyfile\n");
+            fprintf(stderr, "Bad key file\n");
+            break;
+        case BAD_NAME:
+            fprintf(stderr, "Bad name\n");
             break;
         case CONNECT_ERR:
             fprintf(stderr, "Failed to connect\n");
@@ -52,12 +55,29 @@ void exit_with_error(int error, char playerLetter) {
     exit(error);
 }
 
+int is_newline_or_comma(char character) {
+    return character == '\n' || character == ',';
+}
+
 void check_args(int argc, char **argv) {
-    if (argc != EXPECTED_ARGC || !is_string_digit(argv[PORT])) {
+    if (argc != EXPECTED_ARGC) {
         exit_with_error(INVALID_ARG_NUM, ' ');
     }
+    if (!is_string_digit(argv[PORT])) {
+        exit_with_error(CONNECT_ERR, ' ');
+    }
     if (atoi(argv[PORT]) < 0 || atoi(argv[PORT]) > 65535) {
-        exit_with_error(INVALID_ARG_NUM, ' ');
+        exit_with_error(CONNECT_ERR, ' ');
+    }
+    for (int i = 0; i < strlen(argv[GAME_NAME]); i++) {
+        if (is_newline_or_comma(argv[GAME_NAME][i])) {
+            exit_with_error(BAD_NAME, ' ');
+        }
+    }
+    for (int i = 0; i < strlen(argv[PLAYER_NAME]); i++) {
+        if (is_newline_or_comma(argv[PLAYER_NAME][i])) {
+            exit_with_error(BAD_NAME, ' ');
+        }
     }
 }
 
@@ -69,6 +89,7 @@ enum Error get_socket(int *output, char *port) {
     hints.ai_socktype = SOCK_STREAM;
     int error = getaddrinfo(LOCALHOST, port, &hints, &res0);
     if (error) {
+        freeaddrinfo(res0);
         return CONNECT_ERR;
     }
     sock = -1;
@@ -89,6 +110,7 @@ enum Error get_socket(int *output, char *port) {
         break;  /* okay we got one */
     }
     if (sock == -1) {
+        freeaddrinfo(res0);
         return CONNECT_ERR;
     }
     *output = sock;
