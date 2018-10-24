@@ -36,6 +36,7 @@
 #define RIGHT 1
 
 enum Error {
+    NORMAL_EXIT = 0,
     INVALID_ARG_NUM = 1,
     INVALID_KEYFILE = 2,
     INVALID_DECKFILE = 3,

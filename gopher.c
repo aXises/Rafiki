@@ -29,6 +29,12 @@ void check_args(int argc, char **argv) {
     if (argc != EXPECTED_ARGC) {
         exit_with_error(INVALID_ARG_NUM);
     }
+    if (!is_string_digit(argv[PORT])) {
+        exit_with_error(CONNECT_ERR);
+    }
+    if (atoi(argv[PORT]) < 0 || atoi(argv[PORT]) > 65535) {
+        exit_with_error(CONNECT_ERR);
+    }
 }
 
 enum Error get_socket(int *output, char *port) {
@@ -84,7 +90,13 @@ int main(int argc, char **argv) {
         fclose(fromServer);
         exit_with_error(INVALID_SERVER);
     }
-    read_line(fromServer, &buffer, 0);
+    int bytesRead = read_line(fromServer, &buffer, 0);
+    if (bytesRead == 0) {
+        free(buffer);
+        fclose(toServer);
+        fclose(fromServer);
+        exit_with_error(NORMAL_EXIT);
+    }
     if (!(strcmp(buffer, "yes") == 0)) {
         free(buffer);
         fclose(toServer);
