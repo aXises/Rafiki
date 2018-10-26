@@ -63,16 +63,23 @@ void check_args(int argc, char **argv) {
     if (atoi(argv[PORT]) < 0 || atoi(argv[PORT]) > 65535) {
         exit_with_error(CONNECT_ERR_PLAYER, ' ');
     }
-    for (int i = 0; i < strlen(argv[GAME_NAME]); i++) {
-        if (is_newline_or_comma(argv[GAME_NAME][i])) {
-            exit_with_error(BAD_NAME, ' ');
+    if (strcmp(argv[GAME_NAME], "reconnect") == 0) {
+        if (!verify_rid(argv[RECONNECT_ID])) {
+            exit_with_error(BAD_RID, ' ');
+        }
+    } else {
+        for (int i = 0; i < strlen(argv[GAME_NAME]); i++) {
+            if (is_newline_or_comma(argv[GAME_NAME][i])) {
+                exit_with_error(BAD_NAME, ' ');
+            }
+        }
+        for (int i = 0; i < strlen(argv[PLAYER_NAME]); i++) {
+            if (is_newline_or_comma(argv[PLAYER_NAME][i])) {
+                exit_with_error(BAD_NAME, ' ');
+            }
         }
     }
-    for (int i = 0; i < strlen(argv[PLAYER_NAME]); i++) {
-        if (is_newline_or_comma(argv[PLAYER_NAME][i])) {
-            exit_with_error(BAD_NAME, ' ');
-        }
-    }
+
 }
 
 /**
@@ -133,6 +140,72 @@ void listen_server(FILE *out, char **output) {
 }
 
 /**
+ * Verifies the reconnect id.
+ * @param line - The line to verify.
+ */
+int verify_rid(char *line) {
+    if (!match_seperators(line, 0, 2)) {
+        return 0;
+    }
+    char *rid = malloc(strlen(line) + 1);
+    strcpy(rid, line);
+    rid[strlen(rid)] = '\0';
+    char **commaSplit = split(rid, ",");
+    for (int i = 0; i < 3; i++) {
+        if (strlen(commaSplit[i]) == 0) {
+            free(rid);
+            free(commaSplit);
+            return 0;
+        }
+    }
+    if (!is_string_digit(commaSplit[GAME_COUNTER])
+            || !is_string_digit(commaSplit[PID])) {
+        free(rid);
+        free(commaSplit);
+        return 0;
+    }
+    free(rid);
+    free(commaSplit);
+    return 1;
+}
+
+/**
+ * Parses the playinfo message from the hub.
+ * @param server - The server instance.
+ * @param line - The line to parse.
+ */
+void parse_playinfo_message(Server *server, char *buffer) {
+    char **splitString = split(buffer, "o");
+    char **playInfo = split(splitString[RIGHT], "/");
+    server->game.selfId = playInfo[LEFT][0] - 'A';
+    server->game.playerCount = atoi(playInfo[RIGHT]);
+    setup_players(server, server->game.playerCount);
+    display_turn_info(&server->game);
+    free(playInfo);
+    free(splitString);
+    free(buffer);
+}
+
+/**
+ * Parses the tokens message from the hub.
+ * @param server - The server instance.
+ * @param line - The line to parse.
+ */
+int handle_tokens_message(Server *server, char *buffer) {
+    int output;
+    parse_tokens_message(&output, buffer);
+    if (output == -1) {
+        return 0;
+    }
+    for (int i = 0; i < (TOKEN_MAX - 1); i++) {
+        server->game.tokenCount[i] = output;
+    }
+    display_turn_info(&server->game);
+    free(buffer);
+    return 1;
+}
+
+/**
  * Gets the initial game information to setup a game state.
  * @param server - The server instance.
  */
@@ -144,12 +217,12 @@ enum Error get_game_info(Server *server) {
         return COMM_ERR;
     }
     if (strstr(buffer, "rid") != NULL) {
-        // verifiy rid here.
+        if (!verify_rid(buffer)) {
+            free(buffer);
+            return COMM_ERR;
+        }
         char **splitString = split(buffer, "d");
-        server->rid = malloc(sizeof(char) * (strlen(splitString[RIGHT]) + 1));
-        strcpy(server->rid, splitString[RIGHT]);
-        server->rid[strlen(splitString[RIGHT])] = '\0';
-        printf("%s\n", server->rid);
+        printf("%s\n", splitString[RIGHT]);
         free(splitString);
         free(buffer);
     } else {
@@ -158,29 +231,17 @@ enum Error get_game_info(Server *server) {
     }
     listen_server(server->out, &buffer);
     if (strstr(buffer, "playinfo") != NULL) {
-        // verifiy playinfo here.
-        char **splitString = split(buffer, "o");
-        char **playInfo = split(splitString[RIGHT], "/");
-        server->game.selfId = playInfo[LEFT][0] - 'A';
-        server->game.playerCount = atoi(playInfo[RIGHT]);
-        free(playInfo);
-        free(splitString);
-        free(buffer);
+        parse_playinfo_message(server, buffer);
     } else {
         free(buffer);
         return COMM_ERR;
     }
     listen_server(server->out, &buffer);
     if (strstr(buffer, "tokens") != NULL) {
-        int output;
-        parse_tokens_message(&output, buffer);
-        if (output == -1) {
+        if (!handle_tokens_message(server, buffer)) {
+            free(buffer);
             return INVALID_MESSAGE;
-        }
-        for (int i = 0; i < (TOKEN_MAX - 1); i++) {
-            server->game.tokenCount[i] = output;
-        }
-        free(buffer);
+        };
     } else {
         free(buffer);
         return COMM_ERR;
@@ -218,11 +279,59 @@ enum Error connect_server(Server *server, char *gamename, char *playername) {
 }
 
 /**
+ * Parses the player message from the hub.
+ * @param server - The server instance.
+ * @param line - The line to parse.
+ */
+void parse_player_message(Server *server, char *line) {
+
+}
+
+/**
+ * Attempt to reconnect to a game.
+ * @param server - The server instance.
+ * @param rid - The reconnect id.
+ */
+enum Error reconnect_server(Server *server, char *rid) {
+    enum Error err = get_socket(&server->socket, server->port);
+    if (err) {
+        return err;
+    }
+    server->in = fdopen(server->socket, "w");
+    server->out = fdopen(server->socket, "r");
+    send_message(server->in, "reconnect%s\n", server->key);
+    char *buffer;
+    read_line(server->out, &buffer, 0);
+    if (strcmp(buffer, "yes") != 0) {
+        free(buffer);
+        return BAD_AUTH;
+    }
+    send_message(server->in, "rid%s\n", rid);
+    read_line(server->out, &buffer, 0);
+    if (strcmp(buffer, "player") != 0) {
+        free(buffer);
+        return COMM_ERR;
+    }
+    while (1) {
+        read_line(server->out, &buffer, 0);
+        if (strstr(buffer, "newcard") != NULL) {
+            handle_new_card_message(&server->game, buffer);
+            free(buffer);
+        } else {
+            free(buffer);
+            break;
+        }
+    }
+    // parse_player_message(server, buffer);
+    free(buffer);
+    return NOTHING_WRONG;
+}
+
+/**
  * Frees memory allocated to the server.
  */
 void free_server(Server server) {
     free(server.game.players);
-    free(server.rid);
     free(server.key);
     fclose(server.in);
     fclose(server.out);
@@ -381,8 +490,6 @@ enum Error handle_messages(Server *server, enum MessageFromHub type,
  * @param server - The server instance.
  */
 enum Error play_game(Server *server) {
-    display_turn_info(&server->game);
-    display_turn_info(&server->game);
     enum ErrorCode err = 0;
     while (1) {
         char *line;
@@ -428,15 +535,21 @@ int main(int argc, char **argv) {
     if (err) {
         exit_with_error(err, ' ');
     }
-    err = connect_server(&server, argv[GAME_NAME], argv[PLAYER_NAME]);
-    if (err) {
-        exit_with_error(err, ' ');
+    if (strcmp(argv[GAME_NAME], "reconnect") == 0) {
+        err = reconnect_server(&server, argv[RECONNECT_ID]);
+        if (err) {
+            exit_with_error(err, ' ');
+        }
+    } else {
+        err = connect_server(&server, argv[GAME_NAME], argv[PLAYER_NAME]);
+        if (err) {
+            exit_with_error(err, ' ');
+        }
+        err = get_game_info(&server);
+        if (err) {
+            exit_with_error(err, ' ');
+        }
     }
-    err = get_game_info(&server);
-    if (err) {
-        exit_with_error(err, ' ');
-    }
-    setup_players(&server, server.game.playerCount);
     play_game(&server);
     free_server(server);
 }

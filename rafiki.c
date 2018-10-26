@@ -814,9 +814,49 @@ enum ConnectionType verify_connection(GameProp *prop, FILE *toConnection,
             type = PLAYER_CONNECT;
         }
         free(encoded);
+    } else if (strstr(buffer, "reconnect") != NULL) {
+        char **encoded = split(buffer, "t");
+        if (strcmp(prop->key, encoded[RIGHT]) != 0) {
+            send_message(toConnection, "no\n");
+            type = INVALID_CONNECT;
+        } else {
+            send_message(toConnection, "yes\n");
+            type = PLAYER_RECONNECT;
+        }
+        free(encoded);
     }
     free(buffer);
     return type;
+}
+
+/**
+ * Handles a player reconnecting to the server.
+ * @param server - The server instance.
+ * @param prop - The game properties.
+ * @param toConnection - The connection to send to.
+ * @param fromConnection - The connection to recieve from.
+ * @param sock - The port socket.
+ * @param gamePropLock - Mutex to prevent game properties from being modified.
+ */
+void handle_player_reconnect(Server *server, GameProp *prop,
+        FILE *toConnection, FILE *fromConnection, int sock,
+        pthread_mutex_t gamePropLock) {
+    struct GamePlayer player;
+    player.fileDescriptor = sock;
+    player.toPlayer = toConnection;
+    player.fromPlayer = fromConnection;
+    char *buffer;
+    if (read_line(player.fromPlayer, &buffer, 0) <= 0) {
+        fclose(player.toPlayer);
+        fclose(player.fromPlayer);
+        free(buffer);
+        return;
+    }
+    // Add player to game.
+    send_message(player.toPlayer, "no\n");
+    fclose(player.toPlayer);
+    fclose(player.fromPlayer);
+    free(buffer);
 }
 
 /**
@@ -838,11 +878,6 @@ void handle_player_connect(Server *server, GameProp *prop, FILE *toConnection,
     if (read_line(player.fromPlayer, &buffer, 0) <= 0) {
         fclose(player.toPlayer);
         fclose(player.fromPlayer);
-        free(buffer);
-        return;
-    }
-    if (strcmp(buffer, "reconnect") == 0) {
-        // Handle reconnect
         free(buffer);
         return;
     }
@@ -896,6 +931,10 @@ void handle_connection(Server *server, GameProp *prop, int sock) {
             combine_all_scores_and_send(server, toConnection);
             fclose(toConnection);
             fclose(fromConnection);
+            break;
+        case (PLAYER_RECONNECT):
+            handle_player_reconnect(server, prop, toConnection,
+                    fromConnection, sock, gamePropLock);
             break;
         case (INVALID_CONNECT):
             fclose(toConnection);

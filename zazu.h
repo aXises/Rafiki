@@ -13,8 +13,14 @@ enum Argument {
     KEYFILE = 1,
     PORT = 2,
     GAME_NAME = 3,
-    RECONNECT_ID = 3,
+    RECONNECT_ID = 4,
     PLAYER_NAME = 4
+};
+
+enum RIDArg {
+    RID_GAME_NAME = 0,
+    GAME_COUNTER = 1,
+    PID = 2,
 };
 
 /**
@@ -38,6 +44,7 @@ void exit_with_error(int error, char playerLetter);
 int is_newline_or_comma(char character);
 void check_args(int argc, char **argv);
 enum Error get_socket(int *output, char *port);
+int verify_rid(char *line);
 void listen_server(FILE *out, char **output);
 enum Error get_game_info(Server *server);
 enum Error connect_server(Server *server, char *gamename, char *playername);

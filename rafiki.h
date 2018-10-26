@@ -32,6 +32,7 @@ enum StatFile {
 enum ConnectionType {
     PLAYER_CONNECT,
     SCORES_CONNECT,
+    PLAYER_RECONNECT,
     INVALID_CONNECT,
 };
 
